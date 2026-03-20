@@ -50,8 +50,6 @@ GAME_TAGS = {
     "dbd": {
         "dbd_survivor": "Survivor",
         "dbd_killer": "Killer",
-        "dbd_chaser": "Chaser",
-        "dbd_stealth": "Stealth",
     },
 }
 
@@ -71,12 +69,12 @@ def profile_menu_keyboard(has_profile: bool) -> InlineKeyboardMarkup:
 
     if has_profile:
         builder.button(text="Моя анкета", callback_data="profile:view")
-        builder.button(text="Редактировать анкету", callback_data="profile:create")
+        builder.button(text="Изменить анкету", callback_data="profile:create")
         builder.button(text="Удалить анкету", callback_data="profile:delete")
     else:
         builder.button(text="Создать анкету", callback_data="profile:create")
 
-    builder.button(text="Назад в меню", callback_data="menu:main")
+    builder.button(text="Вернуться в меню", callback_data="menu:main")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -84,30 +82,42 @@ def profile_menu_keyboard(has_profile: bool) -> InlineKeyboardMarkup:
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Назад в меню", callback_data="menu:main")]
+            [InlineKeyboardButton(text="Вернуться в меню", callback_data="menu:main")]
         ]
     )
 
 
 def step_keyboard(
     *,
-    back_callback: str,
+    back_callback: str | None = None,
+    next_callback: str | None = None,
     skip_callback: str | None = None,
-    extra_callback: str | None = None,
-    extra_text: str | None = None,
+    cancel_callback: str = "template:cancel",
 ) -> InlineKeyboardMarkup:
-    rows = []
+    rows: list[list[InlineKeyboardButton]] = []
 
     if skip_callback:
-        rows.append([InlineKeyboardButton(text="Пропустить", callback_data=skip_callback)])
+        rows.append(
+            [InlineKeyboardButton(text="Пропустить", callback_data=skip_callback)]
+        )
 
-    if extra_callback and extra_text:
-        rows.append([InlineKeyboardButton(text=extra_text, callback_data=extra_callback)])
+    nav_row: list[InlineKeyboardButton] = []
+
+    if back_callback:
+        nav_row.append(InlineKeyboardButton(text="Назад", callback_data=back_callback))
+
+    if next_callback:
+        nav_row.append(InlineKeyboardButton(text="Далее", callback_data=next_callback))
+
+    if nav_row:
+        rows.append(nav_row)
 
     rows.append(
         [
-            InlineKeyboardButton(text="Назад", callback_data=back_callback),
-            InlineKeyboardButton(text="В меню", callback_data="menu:main"),
+            InlineKeyboardButton(
+                text="Отменить редактирование",
+                callback_data=cancel_callback,
+            )
         ]
     )
 
@@ -125,11 +135,11 @@ def games_keyboard(selected_games: list[str] | None = None) -> InlineKeyboardMar
             callback_data=f"game:toggle:{game_key}",
         )
 
-    builder.button(text="Готово", callback_data="game:done")
+    builder.button(text="Далее", callback_data="game:done")
     builder.button(text="Назад", callback_data="template:back:description")
-    builder.button(text="В меню", callback_data="menu:main")
+    builder.button(text="Отменить редактирование", callback_data="template:cancel")
 
-    builder.adjust(2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 1, 1)
     return builder.as_markup()
 
 
@@ -149,9 +159,9 @@ def tags_keyboard(
                 callback_data=f"tag:toggle:{tag_value}",
             )
 
-    builder.button(text="Готово", callback_data="tag:done")
+    builder.button(text="Далее", callback_data="tag:done")
     builder.button(text="Назад", callback_data="template:back:games")
-    builder.button(text="В меню", callback_data="menu:main")
+    builder.button(text="Отменить редактирование", callback_data="template:cancel")
 
     builder.adjust(1)
     return builder.as_markup()
@@ -161,8 +171,13 @@ def confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Сохранить анкету", callback_data="template:save")],
-            [InlineKeyboardButton(text="Назад", callback_data="template:back:tags")],
-            [InlineKeyboardButton(text="В меню", callback_data="menu:main")],
+            [
+                InlineKeyboardButton(text="Назад", callback_data="template:back:tags"),
+                InlineKeyboardButton(
+                    text="Отменить редактирование",
+                    callback_data="template:cancel",
+                ),
+            ],
         ]
     )
 
@@ -170,7 +185,7 @@ def confirm_keyboard() -> InlineKeyboardMarkup:
 def profile_view_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Редактировать", callback_data="profile:create")],
+            [InlineKeyboardButton(text="Изменить", callback_data="profile:create")],
             [InlineKeyboardButton(text="Удалить", callback_data="profile:delete")],
             [InlineKeyboardButton(text="Назад", callback_data="profile:menu")],
         ]
@@ -181,8 +196,11 @@ def delete_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Да, удалить", callback_data="profile:delete:confirm"),
-                InlineKeyboardButton(text="Отмена", callback_data="profile:menu"),
+                InlineKeyboardButton(
+                    text="Да, удалить",
+                    callback_data="profile:delete:confirm",
+                ),
+                InlineKeyboardButton(text="Отмена", callback_data="profile:view"),
             ]
         ]
     )
