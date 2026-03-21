@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
+
 from app.db.session import SessionLocal
 from app.keyboards.keyboard import (
     GAME_TAGS,
@@ -39,7 +40,6 @@ class TemplateStates(StatesGroup):
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =========================
 
-
 def format_profile_text(user) -> str:
     games = ", ".join(user.games or []) if user.games else "не указаны"
     tags = ", ".join(user.tags or []) if user.tags else "не указаны"
@@ -48,6 +48,7 @@ def format_profile_text(user) -> str:
         "🎮 <b>Твоя анкета</b>\n\n"
         f"Имя: {user.username or 'не указано'}\n"
         f"Возраст: {user.age if user.age is not None else 'не указан'}\n"
+
         f"Фото: {'есть' if user.img else 'нет'}\n"
         f"О себе: {user.description or 'не указано'}\n"
         f"Игры: {games}\n"
@@ -192,6 +193,7 @@ async def show_profile_or_create(target: Message | CallbackQuery, state: FSMCont
 
     if isinstance(target, CallbackQuery):
         await target.answer()
+
 
 
 async def ask_name(message: Message, state: FSMContext) -> None:
@@ -408,7 +410,6 @@ async def ask_confirm(message: Message, state: FSMContext) -> None:
 # ОБЩИЕ CALLBACKS
 # =========================
 
-
 @router.callback_query(F.data == "menu:main")
 async def menu_main_callback(callback: CallbackQuery, state: FSMContext):
     await show_main_menu(callback, state)
@@ -450,7 +451,6 @@ async def cancel_template_editing(callback: CallbackQuery, state: FSMContext):
 # ПРОСМОТР / УДАЛЕНИЕ АНКЕТЫ
 # =========================
 
-
 @router.callback_query(F.data == "profile:view")
 async def view_profile(callback: CallbackQuery, state: FSMContext):
     await show_profile_or_create(callback, state)
@@ -471,6 +471,7 @@ async def delete_profile_confirm(callback: CallbackQuery, state: FSMContext):
     with SessionLocal() as db:
         template_service.delete_template(db, callback.from_user.id)
 
+
     await clear_form_message(state, callback.message.bot, callback.message.chat.id)
     await state.clear()
 
@@ -485,8 +486,6 @@ async def delete_profile_confirm(callback: CallbackQuery, state: FSMContext):
 # =========================
 # СОЗДАНИЕ / РЕДАКТИРОВАНИЕ АНКЕТЫ
 # =========================
-
-
 @router.callback_query(F.data == "profile:create")
 async def start_template_creation(callback: CallbackQuery, state: FSMContext):
     with SessionLocal() as db:
@@ -513,7 +512,6 @@ async def start_template_creation(callback: CallbackQuery, state: FSMContext):
 # =========================
 # BACK CALLBACKS
 # =========================
-
 
 @router.callback_query(F.data == "template:back:profile")
 async def back_to_profile_from_edit(callback: CallbackQuery, state: FSMContext):
@@ -606,13 +604,12 @@ async def next_from_description(callback: CallbackQuery, state: FSMContext):
 # =========================
 # ШАГ 1 — ИМЯ
 # =========================
-
-
 @router.message(TemplateStates.waiting_name)
 async def process_name(message: Message, state: FSMContext):
     name = (message.text or "").strip()
 
     if len(name) < 2:
+
         await safe_delete_user_message(message)
         await render_form_step(
             message,
@@ -654,8 +651,6 @@ async def process_name(message: Message, state: FSMContext):
 # =========================
 # ШАГ 2 — ВОЗРАСТ
 # =========================
-
-
 @router.message(TemplateStates.waiting_age)
 async def process_age(message: Message, state: FSMContext):
     text = (message.text or "").strip()
@@ -706,7 +701,6 @@ async def process_age(message: Message, state: FSMContext):
 # ШАГ 3 — ФОТО
 # =========================
 
-
 @router.message(TemplateStates.waiting_photo, F.photo)
 async def process_photo(message: Message, state: FSMContext):
     file_id = message.photo[-1].file_id
@@ -749,12 +743,9 @@ async def invalid_photo(message: Message, state: FSMContext):
         form_state=TemplateStates.waiting_photo,
     )
 
-
 # =========================
 # ШАГ 4 — ОПИСАНИЕ
 # =========================
-
-
 @router.message(TemplateStates.waiting_description)
 async def process_description(message: Message, state: FSMContext):
     description = (message.text or "").strip()
@@ -804,7 +795,6 @@ async def process_description(message: Message, state: FSMContext):
 # ШАГ 5 — ИГРЫ
 # =========================
 
-
 @router.callback_query(TemplateStates.waiting_games, F.data.startswith("game:toggle:"))
 async def toggle_game(callback: CallbackQuery, state: FSMContext):
     game_key = callback.data.split(":")[-1]
@@ -824,14 +814,12 @@ async def toggle_game(callback: CallbackQuery, state: FSMContext):
     selected_tags = [tag for tag in data.get("tags", []) if tag in allowed_tags]
 
     await state.update_data(games=selected_games, tags=selected_tags)
-
     try:
         await callback.message.edit_reply_markup(
             reply_markup=games_keyboard(selected_games)
         )
     except TelegramBadRequest:
         pass
-
     await callback.answer()
 
 
@@ -847,12 +835,9 @@ async def games_done(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await ask_tags(callback.message, state)
 
-
 # =========================
 # ШАГ 6 — ТЕГИ
 # =========================
-
-
 @router.callback_query(TemplateStates.waiting_tags, F.data.startswith("tag:toggle:"))
 async def toggle_tag(callback: CallbackQuery, state: FSMContext):
     tag_value = callback.data.split(":")[-1]
@@ -864,7 +849,6 @@ async def toggle_tag(callback: CallbackQuery, state: FSMContext):
     if tag_value not in allowed_tags:
         await callback.answer("Этот тег недоступен для выбранных игр.", show_alert=True)
         return
-
     selected_tags = list(data.get("tags", []))
     if tag_value in selected_tags:
         selected_tags.remove(tag_value)
@@ -872,14 +856,12 @@ async def toggle_tag(callback: CallbackQuery, state: FSMContext):
         selected_tags.append(tag_value)
 
     await state.update_data(tags=selected_tags)
-
     try:
         await callback.message.edit_reply_markup(
             reply_markup=tags_keyboard(selected_games, selected_tags)
         )
     except TelegramBadRequest:
         pass
-
     await callback.answer()
 
 
@@ -895,12 +877,9 @@ async def tags_done(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await ask_confirm(callback.message, state)
 
-
 # =========================
 # ШАГ 7 — СОХРАНЕНИЕ
 # =========================
-
-
 @router.callback_query(TemplateStates.waiting_confirm, F.data == "template:save")
 async def save_template(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -917,7 +896,6 @@ async def save_template(callback: CallbackQuery, state: FSMContext):
             games=data.get("games", []),
             rating=data.get("rating"),
         )
-
     await clear_form_message(state, callback.message.bot, callback.message.chat.id)
     await state.clear()
 

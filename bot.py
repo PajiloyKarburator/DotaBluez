@@ -6,6 +6,8 @@ import asyncio
 from app.config.cfg import BOT_TOKEN
 
 from app.handlers import template_handler, handler
+from app.handlers.handler_search import router as search_router
+
 
 
 async def main():
@@ -16,6 +18,7 @@ async def main():
     dp = Dispatcher()
     dp.include_router(template_handler.router)
     dp.include_router(handler.router)
+    dp.include_router(search_router)
 
     await dp.start_polling(bot)
 

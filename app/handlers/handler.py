@@ -53,15 +53,6 @@ async def help_handler(message: Message):
         "Удачи в катках и только хороших тиммейтов 🔥"
     )
 
-@router.message(F.text == "Поиск")
-async def search_stub(message: Message, state: SSLContext):
-    await clear_form_message(state, message.bot, message.chat.id)
-    await state.clear()
-    await message.answer(
-        "Раздел поиска пока в разработке.",
-        reply_markup=back_to_menu_keyboard(),
-    )
-
 
 @router.message(F.text == "Подписка")
 async def subscription_stub(message: Message, state: SSLContext):

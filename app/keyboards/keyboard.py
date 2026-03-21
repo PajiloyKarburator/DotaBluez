@@ -73,7 +73,6 @@ def profile_menu_keyboard(has_profile: bool) -> InlineKeyboardMarkup:
         builder.button(text="Удалить анкету", callback_data="profile:delete")
     else:
         builder.button(text="Создать анкету", callback_data="profile:create")
-
     builder.button(text="Вернуться в меню", callback_data="menu:main")
     builder.adjust(1)
     return builder.as_markup()
@@ -134,7 +133,6 @@ def games_keyboard(selected_games: list[str] | None = None) -> InlineKeyboardMar
             text=f"{prefix}{game_title}",
             callback_data=f"game:toggle:{game_key}",
         )
-
     builder.button(text="Далее", callback_data="game:done")
     builder.button(text="Назад", callback_data="template:back:description")
     builder.button(text="Отменить редактирование", callback_data="template:cancel")
