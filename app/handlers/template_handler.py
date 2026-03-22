@@ -6,13 +6,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
-
 from app.db.session import SessionLocal
 from app.keyboards.keyboard import (
     GAME_TAGS,
     GAMES,
     confirm_keyboard,
-    delete_confirm_keyboard,
     games_keyboard,
     main_menu_keyboard,
     profile_menu_keyboard,
@@ -20,11 +18,13 @@ from app.keyboards.keyboard import (
     step_keyboard,
     tags_keyboard,
 )
+from app.repo.repository import UserRepo
+from app.services.content_service import ContentService
 from app.services.user_template_service import UserTemplateService
 
 router = Router()
 template_service = UserTemplateService()
-
+content_service = ContentService(UserRepo())
 
 class TemplateStates(StatesGroup):
     waiting_name = State()
@@ -39,23 +39,26 @@ class TemplateStates(StatesGroup):
 # =========================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =========================
+def format_games_limit(limit: int | None) -> str:
+    if limit is None:
+        return "без ограничений"
+    return str(limit)
 
-def format_profile_text(user) -> str:
+def format_profile_text(user, badge: str) -> str:
     games = ", ".join(user.games or []) if user.games else "не указаны"
     tags = ", ".join(user.tags or []) if user.tags else "не указаны"
 
     return (
         "🎮 <b>Твоя анкета</b>\n\n"
+        f"Статус: {badge}\n"
         f"Имя: {user.username or 'не указано'}\n"
         f"Возраст: {user.age if user.age is not None else 'не указан'}\n"
-
         f"Фото: {'есть' if user.img else 'нет'}\n"
         f"О себе: {user.description or 'не указано'}\n"
         f"Игры: {games}\n"
         f"Теги: {tags}\n"
         f"Рейтинг: {user.rating if user.rating is not None else 'не указан'}"
     )
-
 
 def collect_allowed_tags(selected_games: list[str]) -> set[str]:
     allowed_tags = set()
@@ -172,22 +175,23 @@ async def show_profile_or_create(target: Message | CallbackQuery, state: FSMCont
 
     with SessionLocal() as db:
         user = template_service.get_profile(db, user_id)
+        badge = content_service.get_subscription_badge(db, user_id)
 
     if user and user.username:
         if user.img:
             await message.answer_photo(
                 photo=user.img,
-                caption=format_profile_text(user),
+                caption=format_profile_text(user, badge),
                 reply_markup=profile_view_keyboard(),
             )
         else:
             await message.answer(
-                format_profile_text(user),
+                format_profile_text(user, badge),
                 reply_markup=profile_view_keyboard(),
             )
     else:
         await message.answer(
-            "У тебя пока нет анкеты. Давай создадим её 👇",
+            f"У тебя пока нет анкеты.\nТекущий статус: {badge}\n\nДавай создадим её 👇",
             reply_markup=profile_menu_keyboard(has_profile=False),
         )
 
@@ -308,11 +312,20 @@ async def ask_description(message: Message, state: FSMContext) -> None:
 async def ask_games(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     selected_games = data.get("games", [])
+    user_id = data.get("user_id")
+
+    with SessionLocal() as db:
+        games_limit = content_service.get_games_limit(db, user_id)
+    limit_text = (
+        "Ты можешь выбрать сколько угодно игр."
+        if games_limit is None
+        else f"Ты можешь выбрать до <b>{games_limit}</b> игр."
+    )
 
     text = (
         "🎯 Шаг 5/6\n"
-        "Выбери игры, для которых хочешь найти тиммейтов.\n"
-        "Можно выбрать несколько.\n\n"
+        "Выбери игры, для которых хочешь найти тиммейтов.\n\n"
+        f"{limit_text}\n\n"
         "Когда закончишь — нажми <b>Далее</b>."
     )
 
@@ -327,7 +340,9 @@ async def ask_games(message: Message, state: FSMContext) -> None:
         reply_markup=games_keyboard(selected_games),
         form_state=TemplateStates.waiting_games,
     )
-
+    with SessionLocal() as db:
+        games_limit = content_service.get_games_limit(db, message.from_user.id)
+  
 
 async def ask_tags(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
@@ -456,33 +471,6 @@ async def view_profile(callback: CallbackQuery, state: FSMContext):
     await show_profile_or_create(callback, state)
 
 
-@router.callback_query(F.data == "profile:delete")
-async def delete_profile_ask(callback: CallbackQuery):
-    await callback.message.answer(
-        "Ты точно хочешь удалить анкету?\n\n"
-        "После удаления её нужно будет заполнять заново.",
-        reply_markup=delete_confirm_keyboard(),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "profile:delete:confirm")
-async def delete_profile_confirm(callback: CallbackQuery, state: FSMContext):
-    with SessionLocal() as db:
-        template_service.delete_template(db, callback.from_user.id)
-
-
-    await clear_form_message(state, callback.message.bot, callback.message.chat.id)
-    await state.clear()
-
-    await callback.message.answer("Анкета удалена.")
-    await callback.message.answer(
-        "У тебя пока нет анкеты. Давай создадим её 👇",
-        reply_markup=profile_menu_keyboard(has_profile=False),
-    )
-    await callback.answer()
-
-
 # =========================
 # СОЗДАНИЕ / РЕДАКТИРОВАНИЕ АНКЕТЫ
 # =========================
@@ -492,6 +480,7 @@ async def start_template_creation(callback: CallbackQuery, state: FSMContext):
         user = template_service.get_profile(db, callback.from_user.id)
 
     initial_data = {
+        "user_id": callback.from_user.id,
         "username": user.username if user else None,
         "age": user.age if user else None,
         "img": user.img if user else None,
@@ -804,22 +793,44 @@ async def toggle_game(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     selected_games = list(data.get("games", []))
+    user_id = data.get("user_id")
+
+    with SessionLocal() as db:
+        games_limit = content_service.get_games_limit(db, user_id)
+        status = content_service.get_subscription_status(db, user_id)
 
     if game_key in selected_games:
         selected_games.remove(game_key)
     else:
+        if games_limit is not None and len(selected_games) >= games_limit:
+            if status == "free":
+                await callback.answer(
+                    "На бесплатном тарифе можно выбрать только 1 игру.\nОформи Premium, чтобы открыть до 3 игр.",
+                    show_alert=True,
+                )
+            elif status == "prime":
+                await callback.answer(
+                    "На Premium можно выбрать до 3 игр.\nGold открывает неограниченное количество игр.",
+                    show_alert=True,
+                )
+            else:
+                await callback.answer("Достигнут лимит игр.", show_alert=True)
+            return
+
         selected_games.append(game_key)
 
     allowed_tags = collect_allowed_tags(selected_games)
     selected_tags = [tag for tag in data.get("tags", []) if tag in allowed_tags]
 
     await state.update_data(games=selected_games, tags=selected_tags)
+
     try:
         await callback.message.edit_reply_markup(
             reply_markup=games_keyboard(selected_games)
         )
     except TelegramBadRequest:
         pass
+
     await callback.answer()
 
 
@@ -885,9 +896,11 @@ async def save_template(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
 
     with SessionLocal() as db:
+        user_id = data.get("user_id")
+
         template_service.create_template(
             db,
-            user_id=callback.from_user.id,
+            user_id=user_id,
             username=data.get("username"),
             age=data.get("age"),
             img=data.get("img"),

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 from sqlalchemy import select
@@ -53,6 +51,7 @@ class UserRepo:
             tags=self._normalize_list(tags),
             games=self._normalize_list(games),
             rating=rating,
+            exclusive={},
         )
         db.add(user)
         db.commit()
@@ -128,6 +127,7 @@ class UserRepo:
             "tags",
             "games",
             "rating",
+            "exclusive",
         }
 
         for field_name, value in fields.items():
@@ -145,6 +145,27 @@ class UserRepo:
 
             setattr(user, field_name, value)
 
+        db.commit()
+        db.refresh(user)
+        return user
+
+    def get_user_exclusive(self, db: Session, user_id: int) -> dict:
+        user = self.get_user_by_id(db, user_id)
+        if not user:
+            return {}
+        return user.exclusive or {}
+
+    def save_user_exclusive(
+        self,
+        db: Session,
+        user_id: int,
+        exclusive: dict,
+    ) -> User | None:
+        user = self.get_user_by_id(db, user_id)
+        if not user:
+            return None
+
+        user.exclusive = exclusive
         db.commit()
         db.refresh(user)
         return user

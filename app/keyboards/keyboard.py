@@ -6,6 +6,8 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.services.content_catalog import CONTENT_CATALOG
+
 # Машинные значения для БД / JSON
 GAMES = {
     "csgo": "CS:GO",
@@ -53,12 +55,20 @@ GAME_TAGS = {
     },
 }
 
+CONTENT_EMOJI = {
+    "prime": "💎",
+    "gold": "🥇",
+    "oracle": "🔮",
+    "second_chance": "♻️",
+    "refresh": "⚡",
+}
+
 
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Анкета"), KeyboardButton(text="Поиск")],
-            [KeyboardButton(text="Подписка"), KeyboardButton(text="Помощь")],
+            [KeyboardButton(text="Доп Контент"), KeyboardButton(text="Помощь")],
         ],
         resize_keyboard=True,
     )
@@ -70,9 +80,9 @@ def profile_menu_keyboard(has_profile: bool) -> InlineKeyboardMarkup:
     if has_profile:
         builder.button(text="Моя анкета", callback_data="profile:view")
         builder.button(text="Изменить анкету", callback_data="profile:create")
-        builder.button(text="Удалить анкету", callback_data="profile:delete")
     else:
         builder.button(text="Создать анкету", callback_data="profile:create")
+
     builder.button(text="Вернуться в меню", callback_data="menu:main")
     builder.adjust(1)
     return builder.as_markup()
@@ -133,6 +143,7 @@ def games_keyboard(selected_games: list[str] | None = None) -> InlineKeyboardMar
             text=f"{prefix}{game_title}",
             callback_data=f"game:toggle:{game_key}",
         )
+
     builder.button(text="Далее", callback_data="game:done")
     builder.button(text="Назад", callback_data="template:back:description")
     builder.button(text="Отменить редактирование", callback_data="template:cancel")
@@ -168,9 +179,17 @@ def tags_keyboard(
 def confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Сохранить анкету", callback_data="template:save")],
             [
-                InlineKeyboardButton(text="Назад", callback_data="template:back:tags"),
+                InlineKeyboardButton(
+                    text="Сохранить анкету",
+                    callback_data="template:save",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Назад",
+                    callback_data="template:back:tags",
+                ),
                 InlineKeyboardButton(
                     text="Отменить редактирование",
                     callback_data="template:cancel",
@@ -184,21 +203,108 @@ def profile_view_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Изменить", callback_data="profile:create")],
-            [InlineKeyboardButton(text="Удалить", callback_data="profile:delete")],
-            [InlineKeyboardButton(text="Назад", callback_data="profile:menu")],
+            [InlineKeyboardButton(text="Назад", callback_data="menu:main")],
         ]
     )
 
 
-def delete_confirm_keyboard() -> InlineKeyboardMarkup:
+# =========================
+# ДОП КОНТЕНТ
+# =========================
+
+def content_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Да, удалить",
-                    callback_data="profile:delete:confirm",
-                ),
-                InlineKeyboardButton(text="Отмена", callback_data="profile:view"),
-            ]
+                    text="🛒 Приобрести услуги",
+                    callback_data="content:buy",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎒 Мои услуги",
+                    callback_data="content:my",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Вернуться в меню",
+                    callback_data="menu:main",
+                )
+            ],
         ]
     )
+
+
+def content_catalog_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    for content_code, item in CONTENT_CATALOG.items():
+        emoji = CONTENT_EMOJI.get(content_code, "✨")
+        builder.button(
+            text=f"{emoji} {item['title']}",
+            callback_data=f"content:item:{content_code}",
+        )
+
+    builder.button(text="Назад", callback_data="content:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def content_tariffs_keyboard(content_code: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    content = CONTENT_CATALOG.get(content_code, {})
+    tariffs = content.get("tariffs", {})
+    emoji = CONTENT_EMOJI.get(content_code, "✨")
+
+    for tariff_code, tariff in tariffs.items():
+        builder.button(
+            text=f"{emoji} {tariff['title']}",
+            callback_data=f"content:tariff:{tariff_code}",
+        )
+    builder.button(text="Назад", callback_data="content:buy")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def my_content_keyboard(active_items: dict) -> InlineKeyboardMarkup:
+    buttons = []
+
+    for content_code, item in active_items.items():
+        title = item.get("content_title") or item.get("title") or content_code
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🎁 {title}",
+                callback_data=f"content:my:item:{content_code}",
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="content:menu")
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def content_detail_keyboard(content_code: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+
+    if content_code in {"refresh", "second_chance"}:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Использовать",
+                    callback_data=f"content:use:{content_code}",
+                )
+            ]
+        )
+
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="Назад", callback_data="content:my")],
+            [InlineKeyboardButton(text="В меню", callback_data="menu:main")],
+        ]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)

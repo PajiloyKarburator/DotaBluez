@@ -19,3 +19,4 @@ class User(Base):
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     games: Mapped[list | None] = mapped_column(JSON, nullable=True)
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exclusive: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
