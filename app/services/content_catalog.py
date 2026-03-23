@@ -118,25 +118,128 @@ CONTENT_CATALOG = {
     },
 }
 STARS_TARIFF_PRICES = {
-    "prime_month": 1,
-    "prime_3m": 499,
-    "prime_6m": 899,
-    "prime_12m": 1499,
+    "prime_month": 60,
+    "prime_3m": 160,
+    "prime_6m": 300,
+    "prime_12m": 580,
 
-    "gold_month": 1,
-    "gold_3m": 949,
-    "gold_6m": 1799,
-    "gold_12m": 3299,
+    "gold_month": 90,
+    "gold_3m": 250,
+    "gold_6m": 480,
+    "gold_12m": 940,
 
-    "oracle_1d": 1,
-    "oracle_3d": 39,
-    "oracle_7d": 69,
+    "oracle_1d": 15,
+    "oracle_3d": 40,
+    "oracle_7d": 90,
 
-    "refresh_1": 1,
-    "refresh_3": 59,
-    "refresh_5": 89,
+    "refresh_1": 10,
+    "refresh_3": 25,
+    "refresh_5": 40,
 
-    "second_chance_1": 1,
-    "second_chance_3": 379,
-    "second_chance_5": 549,
+    "second_chance_1": 50,
+    "second_chance_3": 140,
+    "second_chance_5": 220,
+}
+
+# Машинные значения для БД / JSON
+GAMES = {
+    "dota2": "Dota 2", 
+    "lol": "League of Legends",
+    "csgo": "CS:GO",
+    "valorant": "Valorant",
+    "apex": "Apex Legends",
+    "hd2": "Helldivers 2", 
+    "eft":"Escape from Tarkov",
+    "dbd": "Dead by Daylight",
+    "wot": "World of Tanks",
+    "wt": "War Tunder",
+    "drg": "Deep Rock Galactic",
+    "brawlstars": "Brawl Stars",
+}
+
+GAME_TAGS = {
+    "dota2": {
+        "dota2_carry": "Керри",
+        "dota2_mid": "Мидер",
+        "dota2_offlane": "Оффлейн",
+        "dota2_half_support": "Поддержка",
+        "dota2_support": "Полная Поддержка",
+    },
+    "lol": {
+        "lol_top": "Топ-лейнер",
+        "lol_forest": "Лесник",
+        "lol_mid": "Мид-лейнер",
+        "lol_bot": "Бот-лейнер",
+        "lol_support": "Поддержка",
+
+    },
+    "csgo": {
+        "csgo_rifler": "Rifler",
+        "csgo_awper": "AWPer",
+        "csgo_igl": "IGL",
+    },
+    "valorant": {
+        "valorant_duelist": "Дуэлист",
+        "valorant_controller": "Контроллер",
+        "valorant_initiator": "Инициатор",
+        "valorant_sentinel": "Страж",
+    },
+    "apex": {
+        "apex_entry": "Разведка",
+        "apex_support": "Поддержка",
+        "apex_igl": "Штурм",
+        "apex_sniper": "Снайпер",
+    },
+    "hd2":{
+        "hd2_heavy":"Штурмовик",
+        "hd2_control":"Контроль",
+        "hd2_sniper":"Снайпер",
+        "hd2_support":"Инженер",
+    },
+    "eft":{
+        "eft_sniper":"Снайпер",
+        "eft_mule":"Мул",
+        "eft_scout":"Разведчик",
+        "eft_hiiler":"Санитар",
+    },
+    "wot":{
+        "wot_tt":"Тяжелый танк",
+        "wot_st":"Средний танк",
+        "wot_lt":"Легкий танк",
+        "wot_pt":"ПТ-САУ",
+        "wot_art":"САУ",
+    },
+    "wt":{
+        "wt_tt":"Тяжелый танк",
+        "wt_st":"Средний танк",
+        "wt_lt":"Легкий танк",
+        "wt_pt":"ПТ-САУ",
+    },
+    "drg":{
+        "drg_scout":"Скаут",
+        "drg_engineer":"Инженер",
+        "drg_driller":"Бурильщик",
+        "drg_gunner":"Стрелок",
+    },
+    "brawlstars": {
+        "brawlstars_assasin": "Ассасин",
+        "brawlstars_support": "Поддержка",
+        "brawlstars_tank": "Танк",
+        "brawlstars_marksman": "Стрелок",
+        "brawlstars_artilery": "Артилерия",
+        "brawlstars_control": "Контроль",
+    },
+    "dbd": {
+        "dbd_survivor": "Выживший",
+        "dbd_killer": "Маньяк",
+    },
+
+}
+
+CONTENT_EMOJI = {
+    "prime": "💎",
+    "gold": "🥇",
+    "oracle": "🔮",
+    "second_chance": "♻️",
+    "refresh": "⚡",
 }

@@ -179,7 +179,7 @@ class ContentService:
         status = self.get_active_subscription(db, user_id)
 
         if status == "gold":
-            return "🥇 Gold"
+            return "👑 Gold"
         if status == "prime":
             return "💎 Premium"
         return "🆓 Free"

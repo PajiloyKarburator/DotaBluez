@@ -6,62 +6,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.services.content_catalog import CONTENT_CATALOG
-
-# Машинные значения для БД / JSON
-GAMES = {
-    "csgo": "CS:GO",
-    "dota2": "Dota 2",
-    "valorant": "Valorant",
-    "apex": "Apex Legends",
-    "brawlstars": "Brawl Stars",
-    "dbd": "Dead by Daylight",
-}
-
-GAME_TAGS = {
-    "dota2": {
-        "dota2_mid": "Мидер",
-        "dota2_carry": "Керри",
-        "dota2_support": "Саппорт",
-        "dota2_offlane": "Оффлейн",
-    },
-    "csgo": {
-        "csgo_rifler": "Rifler",
-        "csgo_awper": "AWPer",
-        "csgo_igl": "IGL",
-        "csgo_support": "Support",
-    },
-    "valorant": {
-        "valorant_duelist": "Duelist",
-        "valorant_controller": "Controller",
-        "valorant_initiator": "Initiator",
-        "valorant_sentinel": "Sentinel",
-    },
-    "apex": {
-        "apex_entry": "Entry",
-        "apex_support": "Support",
-        "apex_igl": "IGL",
-        "apex_sniper": "Sniper",
-    },
-    "brawlstars": {
-        "brawlstars_damage": "Damage Dealer",
-        "brawlstars_support": "Support",
-        "brawlstars_tank": "Tank",
-        "brawlstars_control": "Control",
-    },
-    "dbd": {
-        "dbd_survivor": "Survivor",
-        "dbd_killer": "Killer",
-    },
-}
-
-CONTENT_EMOJI = {
-    "prime": "💎",
-    "gold": "🥇",
-    "oracle": "🔮",
-    "second_chance": "♻️",
-    "refresh": "⚡",
-}
+from app.services.content_catalog import CONTENT_CATALOG, CONTENT_EMOJI, GAME_TAGS, GAMES
 
 
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
