@@ -17,7 +17,6 @@ from app.services.service_search import SearchService
 
 router = Router()
 
-# Единственный экземпляр сервиса — хранит квоты и просмотренные анкеты
 search_service = SearchService()
 
 
@@ -30,18 +29,12 @@ class SearchStates(StatesGroup):
 # ──────────────────────────────────────
 
 def _format_card(card) -> str:
-    """Форматирует текст карточки анкеты."""
-
-    # Переводим машинные ключи игр в читаемые названия
-    games_display = []
-    for g in (card.games or []):
-        games_display.append(GAMES.get(g, g))
+    games_display = [GAMES.get(g, g) for g in (card.games or [])]
     games_str = ", ".join(games_display) if games_display else "не указаны"
 
-    # Переводим машинные ключи тегов в читаемые названия
     tags_display = []
     for tag_key in (card.tags or []):
-        tag_name = tag_key  # fallback — сам ключ
+        tag_name = tag_key
         for game_tags in GAME_TAGS.values():
             if tag_key in game_tags:
                 tag_name = game_tags[tag_key]
@@ -59,7 +52,6 @@ def _format_card(card) -> str:
 
 
 def _card_keyboard() -> InlineKeyboardMarkup:
-    """3 кнопки: лайк, дизлайк, вернуться к профилю."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -77,13 +69,10 @@ def _card_keyboard() -> InlineKeyboardMarkup:
 
 
 def _no_views_text(seconds_left: int) -> str:
-    """Текст когда просмотры закончились."""
     if seconds_left <= 0:
         return "📭 Просмотры закончились. Попробуй ещё раз!"
-
     minutes = seconds_left // 60
     seconds = seconds_left % 60
-
     return (
         "⏳ <b>Просмотры закончились!</b>\n\n"
         f"Следующая анкета будет доступна через "
@@ -91,40 +80,33 @@ def _no_views_text(seconds_left: int) -> str:
     )
 
 
-async def _send_card(target: Message | CallbackQuery, card, *, edit: bool = False) -> None:
-    """Отправить или отредактировать карточку."""
+async def _send_card(
+    target: Message | CallbackQuery, card, *, edit: bool = False
+) -> None:
     text = _format_card(card)
     keyboard = _card_keyboard()
 
     if edit and isinstance(target, CallbackQuery):
-        # Пробуем отредактировать текущее сообщение
         try:
             if card.img:
                 await target.message.edit_media(
                     media=InputMediaPhoto(
-                        media=card.img,
-                        caption=text,
-                        parse_mode="HTML",
+                        media=card.img, caption=text, parse_mode="HTML"
                     ),
                     reply_markup=keyboard,
                 )
             else:
                 await target.message.edit_text(
-                    text=text,
-                    reply_markup=keyboard,
-                    parse_mode="HTML",
+                    text=text, reply_markup=keyboard, parse_mode="HTML"
                 )
             return
         except Exception:
-            # Не получилось отредактировать — удаляем и шлём новое
             try:
                 await target.message.delete()
             except Exception:
                 pass
 
-    # Отправляем новое сообщение
     msg = target.message if isinstance(target, CallbackQuery) else target
-
     if card.img:
         await msg.answer_photo(
             photo=card.img,
@@ -133,27 +115,21 @@ async def _send_card(target: Message | CallbackQuery, card, *, edit: bool = Fals
             parse_mode="HTML",
         )
     else:
-        await msg.answer(
-            text=text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
+        await msg.answer(text=text, reply_markup=keyboard, parse_mode="HTML")
 
 
 # ──────────────────────────────────────
-# Точка входа: кнопка «Поиск»
+# Кнопка «Поиск» — начало
 # ──────────────────────────────────────
 
 @router.message(F.text == "Поиск")
 async def start_search(message: Message, state: FSMContext):
-    """Нажатие кнопки 'Поиск' в главном меню."""
     user_id = message.from_user.id
 
-    # Проверяем что анкета создана
     with SessionLocal() as db:
         from app.services.user_template_service import UserTemplateService
-        template_svc = UserTemplateService()
 
+        template_svc = UserTemplateService()
         if not template_svc.profile_is_complete(db, user_id):
             await message.answer(
                 "⚠️ Сначала создай анкету в разделе <b>Анкета</b>.",
@@ -162,9 +138,7 @@ async def start_search(message: Message, state: FSMContext):
             )
             return
 
-    # Показываем информацию и первую карточку
     views_left = search_service.get_views_left(user_id)
-
     if views_left <= 0:
         seconds = search_service.get_time_until_next(user_id)
         await message.answer(
@@ -180,7 +154,6 @@ async def start_search(message: Message, state: FSMContext):
         parse_mode="HTML",
     )
 
-    # Загружаем первую карточку
     with SessionLocal() as db:
         card = search_service.get_next_card(db, user_id)
 
@@ -197,22 +170,19 @@ async def start_search(message: Message, state: FSMContext):
 
 
 # ──────────────────────────────────────
-# Лайк
+# Лайк из поиска
 # ──────────────────────────────────────
 
 @router.callback_query(SearchStates.browsing, F.data == "search:like")
 async def on_like(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
-    # Записываем лайк
     with SessionLocal() as db:
-        search_service.on_like(db, user_id)
+        await search_service.on_like(db, user_id)
 
     await callback.answer("❤️ Лайк!")
 
-    # Проверяем квоту
     views_left = search_service.get_views_left(user_id)
-
     if views_left <= 0:
         seconds = search_service.get_time_until_next(user_id)
         try:
@@ -226,7 +196,6 @@ async def on_like(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    # Загружаем следующую карточку
     with SessionLocal() as db:
         card = search_service.get_next_card(db, user_id)
 
@@ -248,20 +217,16 @@ async def on_like(callback: CallbackQuery, state: FSMContext):
 
 
 # ──────────────────────────────────────
-# Дизлайк
+# Дизлайк из поиска
 # ──────────────────────────────────────
 
 @router.callback_query(SearchStates.browsing, F.data == "search:dislike")
 async def on_dislike(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-
     search_service.on_dislike(user_id)
-
     await callback.answer("👎")
 
-    # Проверяем квоту
     views_left = search_service.get_views_left(user_id)
-
     if views_left <= 0:
         seconds = search_service.get_time_until_next(user_id)
         try:
@@ -275,7 +240,6 @@ async def on_dislike(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    # Следующая карточка
     with SessionLocal() as db:
         card = search_service.get_next_card(db, user_id)
 
@@ -304,13 +268,54 @@ async def on_dislike(callback: CallbackQuery, state: FSMContext):
 async def on_back_to_profile(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
-
     try:
         await callback.message.delete()
     except Exception:
         pass
-
     await callback.message.answer(
-        "Возвращаю в главное меню.",
-        reply_markup=main_menu_keyboard(),
+        "Возвращаю в главное меню.", reply_markup=main_menu_keyboard()
     )
+
+
+# ──────────────────────────────────────
+# Лайк из УВЕДОМЛЕНИЯ
+# ──────────────────────────────────────
+
+@router.callback_query(F.data.startswith("notify:like:"))
+async def on_notify_like(callback: CallbackQuery):
+    """Пользователь нажал лайк в уведомлении о лайке."""
+    user_id = callback.from_user.id
+    # target_id — тот, кто поставил лайк изначально (чью анкету показали)
+    target_id = int(callback.data.split(":")[2])
+
+    with SessionLocal() as db:
+        await search_service.on_like_from_notification(db, user_id, target_id)
+
+    await callback.answer("❤️ Лайк!")
+
+    # Убираем кнопки из уведомления
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+
+# ──────────────────────────────────────
+# Дизлайк из УВЕДОМЛЕНИЯ
+# ──────────────────────────────────────
+
+@router.callback_query(F.data.startswith("notify:dislike:"))
+async def on_notify_dislike(callback: CallbackQuery):
+    """Пользователь нажал дизлайк в уведомлении о лайке."""
+    user_id = callback.from_user.id
+    target_id = int(callback.data.split(":")[2])
+
+    search_service.on_dislike_from_notification(user_id, target_id)
+
+    await callback.answer("👎")
+
+    # Убираем кнопки из уведомления
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass

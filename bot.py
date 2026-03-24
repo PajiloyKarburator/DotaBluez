@@ -3,11 +3,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 import asyncio
 
-from app.config.cfg import BOT_TOKEN
-
-from app.handlers import template_handler, handler, handler_content
+from app.handlers.template_handler import router as template_router
 from app.handlers.handler_search import router as search_router
+from app.handlers.handler_search import search_service
 
+from app.config.cfg import BOT_TOKEN
 
 
 async def main():
@@ -15,6 +15,10 @@ async def main():
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+
+    # Передаём бота в сервис поиска для отправки уведомлений
+    search_service.set_bot(bot)
+
     dp = Dispatcher()
     dp.include_router(template_handler.router)
     dp.include_router(handler.router)
