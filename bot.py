@@ -3,9 +3,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 import asyncio
 
-from app.handlers.template_handler import router as template_router
+from app.handlers.template_handler import router as template_handler
 from app.handlers.handler_search import router as search_router
 from app.handlers.handler_search import search_service
+from app.handlers.handler_content import router as content_router
+from app.handlers.handler import router as main_router
 
 from app.config.cfg import BOT_TOKEN
 
@@ -20,10 +22,10 @@ async def main():
     search_service.set_bot(bot)
 
     dp = Dispatcher()
-    dp.include_router(template_handler.router)
-    dp.include_router(handler.router)
+    dp.include_router(template_handler)
     dp.include_router(search_router)
-    dp.include_router(handler_content.router)
+    dp.include_router(content_router)
+    dp.include_router(main_router)
 
     await dp.start_polling(bot)
 
