@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import random
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.orm import Session
 
 from app.db.models import User
@@ -27,13 +27,6 @@ class ProfileCard:
 
 @dataclass
 class UserQuota:
-    """
-    Квота просмотров одного пользователя.
-
-    - Начальный запас: 10 просмотров.
-    - Каждый час добавляется 1 просмотр.
-    - Максимум 10.
-    """
     views_left: int = 10
     last_refill_time: float = field(default_factory=time.time)
 
@@ -69,35 +62,16 @@ class UserQuota:
 
 
 class SearchService:
-    """
-    Сервис поиска анкет с системой лайков и уведомлений.
-
-    Логика уведомлений:
-    1. Пользователь A лайкает пользователя B
-    2. Пользователю B приходит уведомление с анкетой A
-    3. Пользователь B может поставить лайк или дизлайк
-    4. Если B ставит лайк (взаимный) — обоим приходит уведомление
-       с @username друг друга
-    """
 
     def __init__(self, repo: UserRepo | None = None):
         self.repo = repo or UserRepo()
         self.bot: Bot | None = None
-
-        # user_id → UserQuota
         self._quotas: dict[int, UserQuota] = {}
-
-        # user_id → set[int] (уже просмотренные анкеты)
         self._seen: dict[int, set[int]] = {}
-
-        # user_id → ProfileCard | None (текущая карточка)
         self._current: dict[int, ProfileCard | None] = {}
-
-        # Хранилище лайков: liker_id → set[target_id]
         self._likes: dict[int, set[int]] = {}
 
     def set_bot(self, bot: Bot) -> None:
-        """Установить объект бота для отправки уведомлений."""
         self.bot = bot
 
     # ─── Квоты ───────────────────────────────
@@ -110,7 +84,6 @@ class SearchService:
     # ─── Публичные методы ────────────────────
 
     def get_next_card(self, db: Session, user_id: int) -> ProfileCard | None:
-        """Получить следующую случайную анкету."""
         quota = self._get_quota(user_id)
         if not quota.can_view():
             return None
@@ -132,73 +105,50 @@ class SearchService:
         return self._current.get(user_id)
 
     async def on_like(self, db: Session, user_id: int) -> None:
-        """
-        Обработка лайка из поиска.
-        - Увеличивает рейтинг target
-        - Записывает лайк
-        - Отправляет уведомление target-пользователю
-        - Проверяет взаимный лайк
-        """
         card = self._current.get(user_id)
         if not card:
             return
 
         target_id = card.id
 
-        # Увеличиваем рейтинг
         target_user = self.repo.get_user_by_id(db, target_id)
         if target_user:
             new_rating = (target_user.rating or 0) + 1
             self.repo.update_user(db, target_id, rating=new_rating)
 
-        # Записываем лайк
         if user_id not in self._likes:
             self._likes[user_id] = set()
         self._likes[user_id].add(target_id)
 
-        # Проверяем взаимный лайк
         is_mutual = self._is_mutual_like(user_id, target_id)
 
         if is_mutual:
-            # Взаимный лайк — отправляем обоим уведомление с @username
             await self._send_match_notification(db, user_id, target_id)
         else:
-            # Односторонний лайк — отправляем target уведомление с анкетой liker
             await self._send_like_notification(db, user_id, target_id)
 
         self._current[user_id] = None
 
     def on_dislike(self, user_id: int) -> None:
-        """Обработка дизлайка из поиска."""
         self._current[user_id] = None
 
     async def on_like_from_notification(
         self, db: Session, liker_id: int, target_id: int
     ) -> None:
-        """
-        Обработка лайка из уведомления.
-        liker_id — тот, кто нажал лайк в уведомлении.
-        target_id — тот, чью анкету лайкнули в уведомлении.
-        """
-        # Увеличиваем рейтинг
         target_user = self.repo.get_user_by_id(db, target_id)
         if target_user:
             new_rating = (target_user.rating or 0) + 1
             self.repo.update_user(db, target_id, rating=new_rating)
 
-        # Записываем лайк
         if liker_id not in self._likes:
             self._likes[liker_id] = set()
         self._likes[liker_id].add(target_id)
 
-        # Проверяем взаимный лайк
         is_mutual = self._is_mutual_like(liker_id, target_id)
-
         if is_mutual:
             await self._send_match_notification(db, liker_id, target_id)
 
     def on_dislike_from_notification(self, liker_id: int, target_id: int) -> None:
-        """Обработка дизлайка из уведомления — ничего не делаем."""
         pass
 
     def get_views_left(self, user_id: int) -> int:
@@ -216,20 +166,31 @@ class SearchService:
     # ─── Лайки и мэтчи ──────────────────────
 
     def _is_mutual_like(self, user_a: int, user_b: int) -> bool:
-        """Проверить, лайкнули ли оба друг друга."""
         a_likes_b = user_b in self._likes.get(user_a, set())
         b_likes_a = user_a in self._likes.get(user_b, set())
         return a_likes_b and b_likes_a
+
+    # ─── Получение Telegram @username ────────
+
+    async def _get_tg_username(self, user_id: int) -> str | None:
+        """
+        Получить Telegram @username через bot.get_chat().
+        Возвращает username без @ или None.
+        """
+        if not self.bot:
+            return None
+        try:
+            chat = await self.bot.get_chat(chat_id=user_id)
+            return chat.username
+        except Exception:
+            return None
 
     # ─── Уведомления ────────────────────────
 
     async def _send_like_notification(
         self, db: Session, liker_id: int, target_id: int
     ) -> None:
-        """
-        Отправить target-пользователю уведомление:
-        'Кому-то понравилась твоя анкета' + анкета liker + кнопки лайк/дизлайк.
-        """
+        """Отправить target уведомление: кому-то понравилась анкета."""
         if not self.bot:
             return
 
@@ -257,125 +218,93 @@ class SearchService:
                     parse_mode="HTML",
                 )
         except Exception:
-            # Пользователь мог заблокировать бота
             pass
 
-async def _send_match_notification(
-    self, db: Session, user_a: int, user_b: int
-) -> None:
-    """
-    Отправить обоим пользователям уведомление о взаимном лайке
-    с Telegram @username друг друга.
-    """
-    if not self.bot:
-        return
+    async def _send_match_notification(
+        self, db: Session, user_a: int, user_b: int
+    ) -> None:
+        """Отправить обоим уведомление о взаимном лайке с @username."""
+        if not self.bot:
+            return
 
-    user_a_data = self.repo.get_user_by_id(db, user_a)
-    user_b_data = self.repo.get_user_by_id(db, user_b)
+        user_a_data = self.repo.get_user_by_id(db, user_a)
+        user_b_data = self.repo.get_user_by_id(db, user_b)
+        if not user_a_data or not user_b_data:
+            return
 
-    if not user_a_data or not user_b_data:
-        return
+        tg_username_a = await self._get_tg_username(user_a)
+        tg_username_b = await self._get_tg_username(user_b)
 
-    # Получаем Telegram @username через API
-    tg_username_a = await self._get_tg_username(user_a)
-    tg_username_b = await self._get_tg_username(user_b)
+        # Пользователю A показываем анкету B с @username B
+        text_for_a = self._format_match_notification(user_b_data, tg_username_b)
+        try:
+            if user_b_data.img:
+                await self.bot.send_photo(
+                    chat_id=user_a,
+                    photo=user_b_data.img,
+                    caption=text_for_a,
+                    parse_mode="HTML",
+                )
+            else:
+                await self.bot.send_message(
+                    chat_id=user_a,
+                    text=text_for_a,
+                    parse_mode="HTML",
+                )
+        except Exception:
+            pass
 
-    # Уведомление для user_a (показываем анкету user_b)
-    text_for_a = self._format_match_notification(user_b_data, tg_username_b)
-    try:
-        if user_b_data.img:
-            await self.bot.send_photo(
-                chat_id=user_a,
-                photo=user_b_data.img,
-                caption=text_for_a,
-                parse_mode="HTML",
-            )
-        else:
-            await self.bot.send_message(
-                chat_id=user_a,
-                text=text_for_a,
-                parse_mode="HTML",
-            )
-    except Exception:
-        pass
-
-    # Уведомление для user_b (показываем анкету user_a)
-    text_for_b = self._format_match_notification(user_a_data, tg_username_a)
-    try:
-        if user_a_data.img:
-            await self.bot.send_photo(
-                chat_id=user_b,
-                photo=user_a_data.img,
-                caption=text_for_b,
-                parse_mode="HTML",
-            )
-        else:
-            await self.bot.send_message(
-                chat_id=user_b,
-                text=text_for_b,
-                parse_mode="HTML",
-            )
-    except Exception:
-        pass
+        # Пользователю B показываем анкету A с @username A
+        text_for_b = self._format_match_notification(user_a_data, tg_username_a)
+        try:
+            if user_a_data.img:
+                await self.bot.send_photo(
+                    chat_id=user_b,
+                    photo=user_a_data.img,
+                    caption=text_for_b,
+                    parse_mode="HTML",
+                )
+            else:
+                await self.bot.send_message(
+                    chat_id=user_b,
+                    text=text_for_b,
+                    parse_mode="HTML",
+                )
+        except Exception:
+            pass
 
     # ─── Форматирование ─────────────────────
 
-async def _get_tg_username(self, user_id: int) -> str | None:
-    """
-    Получить Telegram @username пользователя через bot.get_chat().
-    Возвращает username без @ или None если не установлен.
-    """
-    if not self.bot:
-        return None
+    @staticmethod
+    def _format_like_notification(liker: User) -> str:
+        """Текст уведомления о лайке (без @username)."""
+        from app.keyboards.keyboard import GAMES, GAME_TAGS
 
-    try:
-        chat = await self.bot.get_chat(chat_id=user_id)
-        return chat.username  # вернёт "ivan_petrov" (без @) или None
-    except Exception:
-        return None
+        games_display = [GAMES.get(g, g) for g in (liker.games or [])]
+        games_str = ", ".join(games_display) if games_display else "не указаны"
 
+        tags_display = []
+        for tag_key in (liker.tags or []):
+            tag_name = tag_key
+            for game_tags in GAME_TAGS.values():
+                if tag_key in game_tags:
+                    tag_name = game_tags[tag_key]
+                    break
+            tags_display.append(tag_name)
+        tags_str = ", ".join(tags_display) if tags_display else "не указаны"
 
-
-@staticmethod
-def _format_match_notification(user: User, tg_username: str | None) -> str:
-    """Текст уведомления о взаимном лайке (с Telegram @username)."""
-    from app.keyboards.keyboard import GAMES, GAME_TAGS
-
-    games_display = [GAMES.get(g, g) for g in (user.games or [])]
-    games_str = ", ".join(games_display) if games_display else "не указаны"
-
-    tags_display = []
-    for tag_key in (user.tags or []):
-        tag_name = tag_key
-        for game_tags in GAME_TAGS.values():
-            if tag_key in game_tags:
-                tag_name = game_tags[tag_key]
-                break
-        tags_display.append(tag_name)
-    tags_str = ", ".join(tags_display) if tags_display else "не указаны"
-
-    # Формируем контакт через Telegram @username
-    if tg_username:
-        contact = f"✉️ <b>Написать:</b> @{tg_username}"
-    else:
-        contact = (
-            f"✉️ <b>Написать:</b> "
-            f"<a href='tg://user?id={user.id}'>ссылка на профиль</a>"
+        return (
+            "❤️ <b>Кому-то понравилась твоя анкета!</b>\n\n"
+            f"<b>👤 {liker.username or 'Игрок'}, {liker.age} лет</b>\n\n"
+            f"🎮 <b>Игры:</b> {games_str}\n"
+            f"🏷 <b>Роли:</b> {tags_str}\n\n"
+            f"📝 {liker.description or 'Описание не указано'}\n\n"
+            f"⭐ Рейтинг: {liker.rating if liker.rating is not None else '—'}"
         )
 
-    return (
-        "🎉 <b>У вас взаимная симпатия!</b>\n\n"
-        f"<b>👤 {user.username or 'Игрок'}, {user.age} лет</b>\n\n"
-        f"🎮 <b>Игры:</b> {games_str}\n"
-        f"🏷 <b>Роли:</b> {tags_str}\n\n"
-        f"📝 {user.description or 'Описание не указано'}\n\n"
-        f"⭐ Рейтинг: {user.rating if user.rating is not None else '—'}\n\n"
-        f"{contact}"
-    )
-
-@staticmethod
-def _format_match_notification(user: User) -> str:
-        """Текст уведомления о взаимном лайке (с @username)."""
+    @staticmethod
+    def _format_match_notification(user: User, tg_username: str | None) -> str:
+        """Текст уведомления о взаимном лайке (с Telegram @username)."""
         from app.keyboards.keyboard import GAMES, GAME_TAGS
 
         games_display = [GAMES.get(g, g) for g in (user.games or [])]
@@ -391,11 +320,13 @@ def _format_match_notification(user: User) -> str:
             tags_display.append(tag_name)
         tags_str = ", ".join(tags_display) if tags_display else "не указаны"
 
-        # Формируем ссылку на профиль
-        if user.username:
-            contact = f"✉️ <b>Написать:</b> @{user.username}"
+        if tg_username:
+            contact = f"✉️ <b>Написать:</b> @{tg_username}"
         else:
-            contact = f"✉️ <b>Написать:</b> <a href='tg://user?id={user.id}'>ссылка на профиль</a>"
+            contact = (
+                f"✉️ <b>Написать:</b> "
+                f"<a href='tg://user?id={user.id}'>ссылка на профиль</a>"
+            )
 
         return (
             "🎉 <b>У вас взаимная симпатия!</b>\n\n"
@@ -407,9 +338,8 @@ def _format_match_notification(user: User) -> str:
             f"{contact}"
         )
 
-@staticmethod
-def _like_notification_keyboard(liker_id: int) -> InlineKeyboardMarkup:
-        """Клавиатура под уведомлением о лайке."""
+    @staticmethod
+    def _like_notification_keyboard(liker_id: int) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -427,8 +357,8 @@ def _like_notification_keyboard(liker_id: int) -> InlineKeyboardMarkup:
 
     # ─── Подбор кандидатов ───────────────────
 
-def _pick_random_candidate(
-    self, db: Session, user_id: int
+    def _pick_random_candidate(
+        self, db: Session, user_id: int
     ) -> ProfileCard | None:
         user = self.repo.get_user_by_id(db, user_id)
         if not user or not user.games:
@@ -437,7 +367,9 @@ def _pick_random_candidate(
         user_games_set = set(user.games)
         seen_ids = self._seen.get(user_id, set())
 
-        all_users: list[User] = self.repo.get_all_users(db, limit=10000, offset=0)
+        all_users: list[User] = self.repo.get_all_users(
+            db, limit=10000, offset=0
+        )
 
         candidates: list[User] = []
         for u in all_users:
