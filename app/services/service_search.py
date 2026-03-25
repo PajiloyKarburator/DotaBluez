@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 import random
@@ -63,6 +64,10 @@ class UserQuota:
 
 class SearchService:
 
+    RATING_MIN: int = -100
+    RATING_MAX: int = 100
+    REVIEW_DELAY: int = 3600  # секунд (1 час)
+
     def __init__(self, repo: UserRepo | None = None):
         self.repo = repo or UserRepo()
         self.bot: Bot | None = None
@@ -70,6 +75,11 @@ class SearchService:
         self._seen: dict[int, set[int]] = {}
         self._current: dict[int, ProfileCard | None] = {}
         self._likes: dict[int, set[int]] = {}
+
+        # Хранилище запланированных оценок:
+        # Чтобы не отправлять повторно
+        # (user_a, user_b) → asyncio.Task
+        self._review_tasks: dict[tuple[int, int], asyncio.Task] = {}
 
     def set_bot(self, bot: Bot) -> None:
         self.bot = bot
@@ -111,19 +121,18 @@ class SearchService:
 
         target_id = card.id
 
-        target_user = self.repo.get_user_by_id(db, target_id)
-        if target_user:
-            new_rating = (target_user.rating or 0) + 1
-            self.repo.update_user(db, target_id, rating=new_rating)
-
+        # Записываем лайк (рейтинг НЕ меняем)
         if user_id not in self._likes:
             self._likes[user_id] = set()
         self._likes[user_id].add(target_id)
 
+        # Проверяем взаимный лайк
         is_mutual = self._is_mutual_like(user_id, target_id)
 
         if is_mutual:
             await self._send_match_notification(db, user_id, target_id)
+            # Запускаем отложенную оценку через 1 час
+            self._schedule_review(user_id, target_id)
         else:
             await self._send_like_notification(db, user_id, target_id)
 
@@ -135,11 +144,6 @@ class SearchService:
     async def on_like_from_notification(
         self, db: Session, liker_id: int, target_id: int
     ) -> None:
-        target_user = self.repo.get_user_by_id(db, target_id)
-        if target_user:
-            new_rating = (target_user.rating or 0) + 1
-            self.repo.update_user(db, target_id, rating=new_rating)
-
         if liker_id not in self._likes:
             self._likes[liker_id] = set()
         self._likes[liker_id].add(target_id)
@@ -147,9 +151,31 @@ class SearchService:
         is_mutual = self._is_mutual_like(liker_id, target_id)
         if is_mutual:
             await self._send_match_notification(db, liker_id, target_id)
+            self._schedule_review(liker_id, target_id)
 
     def on_dislike_from_notification(self, liker_id: int, target_id: int) -> None:
         pass
+
+    def apply_rating(self, db: Session, target_id: int, score: int) -> None:
+        """
+        Применить оценку к рейтингу пользователя.
+        score: от -5 до 5
+        Рейтинг ограничен [-100, 100].
+        """
+        # Проверяем допустимость оценки
+        score = max(-5, min(5, score))
+
+        user = self.repo.get_user_by_id(db, target_id)
+        if not user:
+            return
+
+        current_rating = user.rating or 0
+        new_rating = current_rating + score
+
+        # Ограничиваем диапазон
+        new_rating = max(self.RATING_MIN, min(self.RATING_MAX, new_rating))
+
+        self.repo.update_user(db, target_id, rating=new_rating)
 
     def get_views_left(self, user_id: int) -> int:
         quota = self._get_quota(user_id)
@@ -170,13 +196,80 @@ class SearchService:
         b_likes_a = user_a in self._likes.get(user_b, set())
         return a_likes_b and b_likes_a
 
+    # ─── Отложенная оценка ───────────────────
+
+    def _schedule_review(self, user_a: int, user_b: int) -> None:
+        """Запланировать отправку уведомлений об оценке через 1 час."""
+        key = (min(user_a, user_b), max(user_a, user_b))
+
+        # Не планируем повторно для той же пары
+        if key in self._review_tasks:
+            return
+
+        task = asyncio.create_task(
+            self._delayed_review_notification(user_a, user_b)
+        )
+        self._review_tasks[key] = task
+
+    async def _delayed_review_notification(
+        self, user_a: int, user_b: int
+    ) -> None:
+        """Подождать 1 час и отправить обоим предложение оценить напарника."""
+        await asyncio.sleep(self.REVIEW_DELAY)
+
+        key = (min(user_a, user_b), max(user_a, user_b))
+        self._review_tasks.pop(key, None)
+
+        if not self.bot:
+            return
+
+        # Отправляем user_a предложение оценить user_b
+        await self._send_review_request(user_a, user_b)
+
+        # Отправляем user_b предложение оценить user_a
+        await self._send_review_request(user_b, user_a)
+
+    async def _send_review_request(
+        self, reviewer_id: int, target_id: int
+    ) -> None:
+        """Отправить одному пользователю предложение оценить другого."""
+        if not self.bot:
+            return
+
+        from app.db.session import SessionLocal
+
+        with SessionLocal() as db:
+            target = self.repo.get_user_by_id(db, target_id)
+
+        if not target:
+            return
+
+        target_name = target.username or "Игрок"
+
+        text = (
+            f"⏰ <b>Прошёл час с момента вашего мэтча!</b>\n\n"
+            f"Оцените вашего напарника <b>{target_name}</b> "
+            f"по шкале от <b>-5</b> до <b>5</b>:\n\n"
+            f"🔴 -5 — ужасный опыт\n"
+            f"🟡  0 — нормально\n"
+            f"🟢 +5 — отличный напарник"
+        )
+
+        keyboard = self._review_keyboard(target_id)
+
+        try:
+            await self.bot.send_message(
+                chat_id=reviewer_id,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
     # ─── Получение Telegram @username ────────
 
     async def _get_tg_username(self, user_id: int) -> str | None:
-        """
-        Получить Telegram @username через bot.get_chat().
-        Возвращает username без @ или None.
-        """
         if not self.bot:
             return None
         try:
@@ -190,7 +283,6 @@ class SearchService:
     async def _send_like_notification(
         self, db: Session, liker_id: int, target_id: int
     ) -> None:
-        """Отправить target уведомление: кому-то понравилась анкета."""
         if not self.bot:
             return
 
@@ -223,7 +315,6 @@ class SearchService:
     async def _send_match_notification(
         self, db: Session, user_a: int, user_b: int
     ) -> None:
-        """Отправить обоим уведомление о взаимном лайке с @username."""
         if not self.bot:
             return
 
@@ -235,7 +326,6 @@ class SearchService:
         tg_username_a = await self._get_tg_username(user_a)
         tg_username_b = await self._get_tg_username(user_b)
 
-        # Пользователю A показываем анкету B с @username B
         text_for_a = self._format_match_notification(user_b_data, tg_username_b)
         try:
             if user_b_data.img:
@@ -254,7 +344,6 @@ class SearchService:
         except Exception:
             pass
 
-        # Пользователю B показываем анкету A с @username A
         text_for_b = self._format_match_notification(user_a_data, tg_username_a)
         try:
             if user_a_data.img:
@@ -277,7 +366,6 @@ class SearchService:
 
     @staticmethod
     def _format_like_notification(liker: User) -> str:
-        """Текст уведомления о лайке (без @username)."""
         from app.keyboards.keyboard import GAMES, GAME_TAGS
 
         games_display = [GAMES.get(g, g) for g in (liker.games or [])]
@@ -304,7 +392,6 @@ class SearchService:
 
     @staticmethod
     def _format_match_notification(user: User, tg_username: str | None) -> str:
-        """Текст уведомления о взаимном лайке (с Telegram @username)."""
         from app.keyboards.keyboard import GAMES, GAME_TAGS
 
         games_display = [GAMES.get(g, g) for g in (user.games or [])]
@@ -352,6 +439,31 @@ class SearchService:
                         callback_data=f"notify:like:{liker_id}",
                     ),
                 ],
+            ]
+        )
+
+    @staticmethod
+    def _review_keyboard(target_id: int) -> InlineKeyboardMarkup:
+        """Клавиатура для оценки напарника от -5 до 5."""
+        row_negative = [
+            InlineKeyboardButton(
+                text=str(i),
+                callback_data=f"review:{target_id}:{i}",
+            )
+            for i in range(-5, 0)
+        ]
+        row_positive = [
+            InlineKeyboardButton(
+                text=f"+{i}" if i > 0 else str(i),
+                callback_data=f"review:{target_id}:{i}",
+            )
+            for i in range(0, 6)
+        ]
+
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                row_negative,
+                row_positive,
             ]
         )
 
