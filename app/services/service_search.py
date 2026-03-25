@@ -373,8 +373,8 @@ def _format_match_notification(user: User, tg_username: str | None) -> str:
         f"{contact}"
     )
 
-    @staticmethod
-    def _format_match_notification(user: User) -> str:
+@staticmethod
+def _format_match_notification(user: User) -> str:
         """Текст уведомления о взаимном лайке (с @username)."""
         from app.keyboards.keyboard import GAMES, GAME_TAGS
 
@@ -407,8 +407,8 @@ def _format_match_notification(user: User, tg_username: str | None) -> str:
             f"{contact}"
         )
 
-    @staticmethod
-    def _like_notification_keyboard(liker_id: int) -> InlineKeyboardMarkup:
+@staticmethod
+def _like_notification_keyboard(liker_id: int) -> InlineKeyboardMarkup:
         """Клавиатура под уведомлением о лайке."""
         return InlineKeyboardMarkup(
             inline_keyboard=[
@@ -427,8 +427,8 @@ def _format_match_notification(user: User, tg_username: str | None) -> str:
 
     # ─── Подбор кандидатов ───────────────────
 
-    def _pick_random_candidate(
-        self, db: Session, user_id: int
+def _pick_random_candidate(
+    self, db: Session, user_id: int
     ) -> ProfileCard | None:
         user = self.repo.get_user_by_id(db, user_id)
         if not user or not user.games:
