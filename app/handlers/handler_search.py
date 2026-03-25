@@ -319,3 +319,57 @@ async def on_notify_dislike(callback: CallbackQuery):
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+
+
+# ──────────────────────────────────────
+# Оценка напарника после мэтча
+# ──────────────────────────────────────
+
+@router.callback_query(F.data.startswith("review:"))
+async def on_review(callback: CallbackQuery):
+    """
+    Обработка оценки напарника.
+    callback_data формат: review:{target_id}:{score}
+    """
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer("❌ Ошибка")
+        return
+
+    try:
+        target_id = int(parts[1])
+        score = int(parts[2])
+    except ValueError:
+        await callback.answer("❌ Ошибка")
+        return
+
+    # Проверяем диапазон
+    if score < -5 or score > 5:
+        await callback.answer("❌ Недопустимая оценка")
+        return
+
+    # Применяем оценку
+    with SessionLocal() as db:
+        search_service.apply_rating(db, target_id, score)
+
+    # Формируем ответ
+    if score > 0:
+        emoji = "🟢"
+        text = f"Вы поставили оценку <b>+{score}</b>"
+    elif score < 0:
+        emoji = "🔴"
+        text = f"Вы поставили оценку <b>{score}</b>"
+    else:
+        emoji = "🟡"
+        text = "Вы поставили оценку <b>0</b>"
+
+    await callback.answer(f"{emoji} Оценка принята!")
+
+    # Заменяем сообщение — убираем кнопки
+    try:
+        await callback.message.edit_text(
+            f"✅ {text}. Спасибо за отзыв!",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
