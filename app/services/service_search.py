@@ -260,88 +260,118 @@ class SearchService:
             # Пользователь мог заблокировать бота
             pass
 
-    async def _send_match_notification(
-        self, db: Session, user_a: int, user_b: int
-    ) -> None:
-        """
-        Отправить обоим пользователям уведомление о взаимном лайке
-        с @username друг друга.
-        """
-        if not self.bot:
-            return
+async def _send_match_notification(
+    self, db: Session, user_a: int, user_b: int
+) -> None:
+    """
+    Отправить обоим пользователям уведомление о взаимном лайке
+    с Telegram @username друг друга.
+    """
+    if not self.bot:
+        return
 
-        user_a_data = self.repo.get_user_by_id(db, user_a)
-        user_b_data = self.repo.get_user_by_id(db, user_b)
+    user_a_data = self.repo.get_user_by_id(db, user_a)
+    user_b_data = self.repo.get_user_by_id(db, user_b)
 
-        if not user_a_data or not user_b_data:
-            return
+    if not user_a_data or not user_b_data:
+        return
 
-        # Уведомление для user_a (показываем анкету user_b с @username)
-        text_for_a = self._format_match_notification(user_b_data)
-        try:
-            if user_b_data.img:
-                await self.bot.send_photo(
-                    chat_id=user_a,
-                    photo=user_b_data.img,
-                    caption=text_for_a,
-                    parse_mode="HTML",
-                )
-            else:
-                await self.bot.send_message(
-                    chat_id=user_a,
-                    text=text_for_a,
-                    parse_mode="HTML",
-                )
-        except Exception:
-            pass
+    # Получаем Telegram @username через API
+    tg_username_a = await self._get_tg_username(user_a)
+    tg_username_b = await self._get_tg_username(user_b)
 
-        # Уведомление для user_b (показываем анкету user_a с @username)
-        text_for_b = self._format_match_notification(user_a_data)
-        try:
-            if user_a_data.img:
-                await self.bot.send_photo(
-                    chat_id=user_b,
-                    photo=user_a_data.img,
-                    caption=text_for_b,
-                    parse_mode="HTML",
-                )
-            else:
-                await self.bot.send_message(
-                    chat_id=user_b,
-                    text=text_for_b,
-                    parse_mode="HTML",
-                )
-        except Exception:
-            pass
+    # Уведомление для user_a (показываем анкету user_b)
+    text_for_a = self._format_match_notification(user_b_data, tg_username_b)
+    try:
+        if user_b_data.img:
+            await self.bot.send_photo(
+                chat_id=user_a,
+                photo=user_b_data.img,
+                caption=text_for_a,
+                parse_mode="HTML",
+            )
+        else:
+            await self.bot.send_message(
+                chat_id=user_a,
+                text=text_for_a,
+                parse_mode="HTML",
+            )
+    except Exception:
+        pass
+
+    # Уведомление для user_b (показываем анкету user_a)
+    text_for_b = self._format_match_notification(user_a_data, tg_username_a)
+    try:
+        if user_a_data.img:
+            await self.bot.send_photo(
+                chat_id=user_b,
+                photo=user_a_data.img,
+                caption=text_for_b,
+                parse_mode="HTML",
+            )
+        else:
+            await self.bot.send_message(
+                chat_id=user_b,
+                text=text_for_b,
+                parse_mode="HTML",
+            )
+    except Exception:
+        pass
 
     # ─── Форматирование ─────────────────────
 
-    @staticmethod
-    def _format_like_notification(liker: User) -> str:
-        """Текст уведомления о лайке (без @username)."""
-        from app.keyboards.keyboard import GAMES, GAME_TAGS
+async def _get_tg_username(self, user_id: int) -> str | None:
+    """
+    Получить Telegram @username пользователя через bot.get_chat().
+    Возвращает username без @ или None если не установлен.
+    """
+    if not self.bot:
+        return None
 
-        games_display = [GAMES.get(g, g) for g in (liker.games or [])]
-        games_str = ", ".join(games_display) if games_display else "не указаны"
+    try:
+        chat = await self.bot.get_chat(chat_id=user_id)
+        return chat.username  # вернёт "ivan_petrov" (без @) или None
+    except Exception:
+        return None
 
-        tags_display = []
-        for tag_key in (liker.tags or []):
-            tag_name = tag_key
-            for game_tags in GAME_TAGS.values():
-                if tag_key in game_tags:
-                    tag_name = game_tags[tag_key]
-                    break
-            tags_display.append(tag_name)
-        tags_str = ", ".join(tags_display) if tags_display else "не указаны"
 
-        return (
-            "❤️ <b>Кому-то понравилась твоя анкета!</b>\n\n"
-            f"<b>👤 {liker.username or 'Игрок'}, {liker.age} лет</b>\n\n"
-            f"🎮 <b>Игры:</b> {games_str}\n"
-            f"🏷 <b>Роли:</b> {tags_str}\n\n"
-            f"📝 {liker.description or 'Описание не указано'}\n\n"
-            f"⭐ Рейтинг: {liker.rating if liker.rating is not None else '—'}"
+
+@staticmethod
+def _format_match_notification(user: User, tg_username: str | None) -> str:
+    """Текст уведомления о взаимном лайке (с Telegram @username)."""
+    from app.keyboards.keyboard import GAMES, GAME_TAGS
+
+    games_display = [GAMES.get(g, g) for g in (user.games or [])]
+    games_str = ", ".join(games_display) if games_display else "не указаны"
+
+    tags_display = []
+    for tag_key in (user.tags or []):
+        tag_name = tag_key
+        for game_tags in GAME_TAGS.values():
+            if tag_key in game_tags:
+                tag_name = game_tags[tag_key]
+                break
+        tags_display.append(tag_name)
+    tags_str = ", ".join(tags_display) if tags_display else "не указаны"
+
+    # Формируем контакт через Telegram @username
+    if tg_username:
+        contact = f"✉️ <b>Написать:</b> @{tg_username}"
+    else:
+        contact = (
+            f"✉️ <b>Написать:</b> "
+            f"<a href='tg://user?id={user.id}'>ссылка на профиль</a>"
         )
+
+    return (
+        "🎉 <b>У вас взаимная симпатия!</b>\n\n"
+        f"<b>👤 {user.username or 'Игрок'}, {user.age} лет</b>\n\n"
+        f"🎮 <b>Игры:</b> {games_str}\n"
+        f"🏷 <b>Роли:</b> {tags_str}\n\n"
+        f"📝 {user.description or 'Описание не указано'}\n\n"
+        f"⭐ Рейтинг: {user.rating if user.rating is not None else '—'}\n\n"
+        f"{contact}"
+    )
 
     @staticmethod
     def _format_match_notification(user: User) -> str:
