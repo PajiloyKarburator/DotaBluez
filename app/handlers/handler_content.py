@@ -363,30 +363,45 @@ async def content_use_callback(callback: CallbackQuery) -> None:
 
     if content_code == "oracle":
         await callback.answer(
-            "Oracle работает по времени и не тратится вручную.",
+            "Oracle работает автоматически при просмотре анкет.",
             show_alert=True,
         )
         return
 
-    if content_code not in {"refresh", "second_chance"}:
-        await callback.answer("Эту услугу нельзя использовать вручную.", show_alert=True)
-        return
+    if content_code == "refresh":
+        with SessionLocal() as db:
+            from app.handlers.handler_search import search_service
+            success = search_service.use_refresh(db, callback.from_user.id)
 
-    with SessionLocal() as db:
-        item = content_service.consume_usage(
-            db,
-            callback.from_user.id,
-            content_code,
+        if not success:
+            await callback.answer("Нет доступных использований", show_alert=True)
+            return
+
+        await callback.message.edit_text(
+            "✅ <b>Поиск обновлён!</b>\n\n"
+            "Все просмотры восстановлены. Заходи в «Поиск»!",
+            reply_markup=content_detail_keyboard(content_code),
+            parse_mode="HTML",
         )
-
-    if not item:
-        await callback.answer("Использование недоступно", show_alert=True)
+        await callback.answer("⚡ Поиск обновлён!")
         return
 
-    await callback.message.edit_text(
-        "✅ <b>Услуга использована</b>\n\n"
-        f"{content_service.format_remaining(item)}",
-        reply_markup=content_detail_keyboard(content_code),
-        parse_mode="HTML",
-    )
-    await callback.answer()
+    if content_code == "second_chance":
+        with SessionLocal() as db:
+            from app.handlers.handler_search import search_service
+            success = search_service.use_second_chance(db, callback.from_user.id)
+
+        if not success:
+            await callback.answer("Нет доступных использований", show_alert=True)
+            return
+
+        await callback.message.edit_text(
+            "✅ <b>Рейтинг сброшен до 0!</b>\n\n"
+            "Начни с чистого листа.",
+            reply_markup=content_detail_keyboard(content_code),
+            parse_mode="HTML",
+        )
+        await callback.answer("♻️ Рейтинг сброшен!")
+        return
+
+    await callback.answer("Эту услугу нельзя использовать вручную.", show_alert=True)
