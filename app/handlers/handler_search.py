@@ -42,12 +42,18 @@ def _format_card(card) -> str:
         tags_display.append(tag_name)
     tags_str = ", ".join(tags_display) if tags_display else "не указаны"
 
+    # Рейтинг показываем только если есть Oracle
+    rating_line = ""
+    if card.show_rating:
+        r = card.rating if card.rating is not None else 0
+        rating_line = f"\n⭐ Рейтинг: <b>{r}</b>"
+
     return (
         f"<b>👤 {card.username or 'Игрок'}, {card.age} лет</b>\n\n"
         f"🎮 <b>Игры:</b> {games_str}\n"
         f"🏷 <b>Роли:</b> {tags_str}\n\n"
-        f"📝 {card.description or 'Описание не указано'}\n\n"
-        f"⭐ Рейтинг: {card.rating if card.rating is not None else '—'}"
+        f"📝 {card.description or 'Описание не указано'}"
+        f"{rating_line}"
     )
 
 
@@ -76,7 +82,9 @@ def _no_views_text(seconds_left: int) -> str:
     return (
         "⏳ <b>Просмотры закончились!</b>\n\n"
         f"Следующая анкета будет доступна через "
-        f"<b>{minutes} мин {seconds} сек</b>."
+        f"<b>{minutes} мин {seconds} сек</b>.\n\n"
+        "💡 Используй <b>Refresh</b> в разделе «Доп Контент», "
+        "чтобы обновить поиск мгновенно!"
     )
 
 
@@ -119,7 +127,7 @@ async def _send_card(
 
 
 # ──────────────────────────────────────
-# Кнопка «Поиск» — начало
+# Кнопка «Поиск»
 # ──────────────────────────────────────
 
 @router.message(F.text == "Поиск")
@@ -128,7 +136,6 @@ async def start_search(message: Message, state: FSMContext):
 
     with SessionLocal() as db:
         from app.services.user_template_service import UserTemplateService
-
         template_svc = UserTemplateService()
         if not template_svc.profile_is_complete(db, user_id):
             await message.answer(
@@ -138,9 +145,11 @@ async def start_search(message: Message, state: FSMContext):
             )
             return
 
-    views_left = search_service.get_views_left(user_id)
+        views_left = search_service.get_views_left(db, user_id)
+
     if views_left <= 0:
-        seconds = search_service.get_time_until_next(user_id)
+        with SessionLocal() as db:
+            seconds = search_service.get_time_until_next(db, user_id)
         await message.answer(
             _no_views_text(seconds),
             parse_mode="HTML",
@@ -182,9 +191,12 @@ async def on_like(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer("❤️ Лайк!")
 
-    views_left = search_service.get_views_left(user_id)
+    with SessionLocal() as db:
+        views_left = search_service.get_views_left(db, user_id)
+
     if views_left <= 0:
-        seconds = search_service.get_time_until_next(user_id)
+        with SessionLocal() as db:
+            seconds = search_service.get_time_until_next(db, user_id)
         try:
             await callback.message.edit_text(
                 _no_views_text(seconds), parse_mode="HTML"
@@ -226,9 +238,12 @@ async def on_dislike(callback: CallbackQuery, state: FSMContext):
     search_service.on_dislike(user_id)
     await callback.answer("👎")
 
-    views_left = search_service.get_views_left(user_id)
+    with SessionLocal() as db:
+        views_left = search_service.get_views_left(db, user_id)
+
     if views_left <= 0:
-        seconds = search_service.get_time_until_next(user_id)
+        with SessionLocal() as db:
+            seconds = search_service.get_time_until_next(db, user_id)
         try:
             await callback.message.edit_text(
                 _no_views_text(seconds), parse_mode="HTML"
@@ -283,17 +298,13 @@ async def on_back_to_profile(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("notify:like:"))
 async def on_notify_like(callback: CallbackQuery):
-    """Пользователь нажал лайк в уведомлении о лайке."""
     user_id = callback.from_user.id
-    # target_id — тот, кто поставил лайк изначально (чью анкету показали)
     target_id = int(callback.data.split(":")[2])
 
     with SessionLocal() as db:
         await search_service.on_like_from_notification(db, user_id, target_id)
 
     await callback.answer("❤️ Лайк!")
-
-    # Убираем кнопки из уведомления
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -306,15 +317,10 @@ async def on_notify_like(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("notify:dislike:"))
 async def on_notify_dislike(callback: CallbackQuery):
-    """Пользователь нажал дизлайк в уведомлении о лайке."""
     user_id = callback.from_user.id
     target_id = int(callback.data.split(":")[2])
-
     search_service.on_dislike_from_notification(user_id, target_id)
-
     await callback.answer("👎")
-
-    # Убираем кнопки из уведомления
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -327,10 +333,6 @@ async def on_notify_dislike(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("review:"))
 async def on_review(callback: CallbackQuery):
-    """
-    Обработка оценки напарника.
-    callback_data формат: review:{target_id}:{score}
-    """
     parts = callback.data.split(":")
     if len(parts) != 3:
         await callback.answer("❌ Ошибка")
@@ -343,16 +345,13 @@ async def on_review(callback: CallbackQuery):
         await callback.answer("❌ Ошибка")
         return
 
-    # Проверяем диапазон
     if score < -5 or score > 5:
         await callback.answer("❌ Недопустимая оценка")
         return
 
-    # Применяем оценку
     with SessionLocal() as db:
         search_service.apply_rating(db, target_id, score)
 
-    # Формируем ответ
     if score > 0:
         emoji = "🟢"
         text = f"Вы поставили оценку <b>+{score}</b>"
@@ -364,12 +363,9 @@ async def on_review(callback: CallbackQuery):
         text = "Вы поставили оценку <b>0</b>"
 
     await callback.answer(f"{emoji} Оценка принята!")
-
-    # Заменяем сообщение — убираем кнопки
     try:
         await callback.message.edit_text(
-            f"✅ {text}. Спасибо за отзыв!",
-            parse_mode="HTML",
+            f"✅ {text}. Спасибо за отзыв!", parse_mode="HTML"
         )
     except Exception:
         pass
