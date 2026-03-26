@@ -144,7 +144,7 @@ async def show_main_menu(target: Message | CallbackQuery, state: FSMContext) -> 
     await state.clear()
 
     text = (
-        "🎧 *Dota Blues* — turn your tilt into chill.\n\n"
+        "🎧 *ДайТимчик* — turn your tilt into chill.\n\n"
         "Платформа для поиска тиммейтов нового уровня.\n"
         "Здесь ты находишь не просто игроков — а людей, с которыми игра действительно заходит.\n\n"
         "Никакого рандома, минимум токсика, только релевантные совпадения\n"

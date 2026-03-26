@@ -92,7 +92,7 @@ def parse_payment_payload(payload: str) -> tuple[int, str] | None:
 
 async def show_content_menu(target: Message | CallbackQuery) -> None:
     text = (
-        "🎁 <b>Доп Контент Dota Blues</b>\n\n"
+        "🎁 <b>Доп Контент</b>\n\n"
         "Здесь ты можешь усилить свой поиск, открыть дополнительные возможности "
         "и сделать подбор тиммейтов удобнее.\n\n"
         "Выбирай:\n"
@@ -181,7 +181,7 @@ async def content_tariff_callback(callback: CallbackQuery) -> None:
     content_code, content_data, tariff_data = found
 
     title = tariff_data["title"]
-    description = content_data.get("description", "Покупка услуги в Dota Blues")
+    description = content_data.get("description", "Покупка услуги в ДайТимчик")
     payload = build_payment_payload(callback.from_user.id, tariff_code)
 
     await callback.message.answer_invoice(
