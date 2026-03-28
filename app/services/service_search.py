@@ -25,7 +25,7 @@ class ProfileCard:
     tags: list[str]
     games: list[str]
     rating: int | None
-    show_rating: bool = False  # True если у зрителя есть Oracle
+    show_rating: bool = False
 
 
 @dataclass
@@ -33,9 +33,14 @@ class UserQuota:
     views_left: int = 10
     last_refill_time: float = field(default_factory=time.time)
     max_views: int = 10
-    refill_interval: int = 3600  # секунд
+    refill_interval: int = 3600
+    unlimited: bool = False
 
     def refill(self) -> None:
+        if self.unlimited:
+            return
+        if self.refill_interval <= 0:
+            return
         now = time.time()
         elapsed = now - self.last_refill_time
         new_views = int(elapsed // self.refill_interval)
@@ -44,10 +49,14 @@ class UserQuota:
             self.last_refill_time += new_views * self.refill_interval
 
     def can_view(self) -> bool:
+        if self.unlimited:
+            return True
         self.refill()
         return self.views_left > 0
 
     def spend(self) -> bool:
+        if self.unlimited:
+            return True
         self.refill()
         if self.views_left <= 0:
             return False
@@ -55,15 +64,20 @@ class UserQuota:
         return True
 
     def time_until_next(self) -> int:
+        if self.unlimited:
+            return 0
         self.refill()
         if self.views_left >= self.max_views:
+            return 0
+        if self.refill_interval <= 0:
             return 0
         now = time.time()
         next_refill = self.last_refill_time + self.refill_interval
         return max(0, int(next_refill - now))
 
     def refill_all(self) -> None:
-        """Мгновенно восстановить все просмотры."""
+        if self.unlimited:
+            return
         self.views_left = self.max_views
         self.last_refill_time = time.time()
 
@@ -74,11 +88,10 @@ class SearchService:
     RATING_MAX: int = 100
     REVIEW_DELAY: int = 3600
 
-    # Настройки по подпискам
     PLANS = {
-        "free":  {"max_views": 10, "refill_interval": 3600},
-        "prime": {"max_views": 30, "refill_interval": 1800},
-        "gold":  {"max_views": 999999, "refill_interval": 1},  # безлимит
+        "free":  {"max_views": 10,  "refill_interval": 3600, "unlimited": False},
+        "prime": {"max_views": 50,  "refill_interval": 3600, "unlimited": False},
+        "gold":  {"max_views": 0,   "refill_interval": 0,    "unlimited": True},
     }
 
     def __init__(self, repo: UserRepo | None = None):
@@ -90,7 +103,6 @@ class SearchService:
         self._current: dict[int, ProfileCard | None] = {}
         self._likes: dict[int, set[int]] = {}
         self._review_tasks: dict[tuple[int, int], asyncio.Task] = {}
-        # Запоминаем какой план был при создании квоты
         self._user_plans: dict[int, str] = {}
 
     def set_bot(self, bot: Bot) -> None:
@@ -99,33 +111,46 @@ class SearchService:
     # ─── Квоты с учётом подписки ─────────────
 
     def _get_quota(self, db: Session, user_id: int) -> UserQuota:
-        """Получить или создать квоту с учётом текущей подписки."""
         current_plan = self.content_service.get_active_subscription(db, user_id)
         plan_config = self.PLANS.get(current_plan, self.PLANS["free"])
 
         old_plan = self._user_plans.get(user_id)
 
         if user_id not in self._quotas or old_plan != current_plan:
-            # Создаём новую квоту или обновляем при смене плана
             quota = self._quotas.get(user_id)
             if quota is None:
                 quota = UserQuota(
                     views_left=plan_config["max_views"],
                     max_views=plan_config["max_views"],
                     refill_interval=plan_config["refill_interval"],
+                    unlimited=plan_config["unlimited"],
                 )
                 self._quotas[user_id] = quota
             else:
-                # План изменился — обновляем параметры
                 quota.max_views = plan_config["max_views"]
                 quota.refill_interval = plan_config["refill_interval"]
-                # Добавляем разницу при апгрейде
+                quota.unlimited = plan_config["unlimited"]
                 if current_plan != "free" and old_plan == "free":
-                    quota.views_left = plan_config["max_views"]
+                    if plan_config["unlimited"]:
+                        quota.unlimited = True
+                    else:
+                        quota.views_left = plan_config["max_views"]
 
             self._user_plans[user_id] = current_plan
 
         return self._quotas[user_id]
+
+    # ─── Oracle: входит в Prime и Gold ───────
+
+    def _has_oracle(self, db: Session, user_id: int) -> bool:
+        """
+        Проверить есть ли функционал Oracle.
+        Oracle входит в: отдельную покупку Oracle, Prime, Gold.
+        """
+        sub = self.content_service.get_active_subscription(db, user_id)
+        if sub in ("prime", "gold"):
+            return True
+        return self.content_service.has_active_content(db, user_id, "oracle")
 
     # ─── Публичные методы ────────────────────
 
@@ -134,8 +159,7 @@ class SearchService:
         if not quota.can_view():
             return None
 
-        # Проверяем есть ли Oracle у текущего пользователя
-        has_oracle = self.content_service.has_active_content(db, user_id, "oracle")
+        has_oracle = self._has_oracle(db, user_id)
 
         card = self._pick_random_candidate(db, user_id, show_rating=has_oracle)
         if card is None:
@@ -203,31 +227,18 @@ class SearchService:
         self.repo.update_user(db, target_id, rating=new_rating)
 
     def use_refresh(self, db: Session, user_id: int) -> bool:
-        """
-        Использовать Refresh — мгновенно восстановить все просмотры.
-        Возвращает True если успешно.
-        """
         item = self.content_service.consume_usage(db, user_id, "refresh")
         if not item:
             return False
-
         quota = self._get_quota(db, user_id)
         quota.refill_all()
-
-        # Сбрасываем просмотренные анкеты
         self._seen.pop(user_id, None)
-
         return True
 
     def use_second_chance(self, db: Session, user_id: int) -> bool:
-        """
-        Использовать Second Chance — сбросить рейтинг до 0.
-        Возвращает True если успешно.
-        """
         item = self.content_service.consume_usage(db, user_id, "second_chance")
         if not item:
             return False
-
         self.repo.update_user(db, user_id, rating=0)
         return True
 
@@ -240,8 +251,12 @@ class SearchService:
         quota = self._get_quota(db, user_id)
         return quota.time_until_next()
 
+    def is_unlimited(self, db: Session, user_id: int) -> bool:
+        """Проверить, безлимитный ли поиск у пользователя."""
+        quota = self._get_quota(db, user_id)
+        return quota.unlimited
+
     def get_user_badge(self, db: Session, user_id: int) -> str:
-        """Получить значок подписки для карточки."""
         return self.content_service.get_subscription_badge(db, user_id)
 
     def reset_seen(self, user_id: int) -> None:
@@ -327,8 +342,7 @@ class SearchService:
         liker = self.repo.get_user_by_id(db, liker_id)
         if not liker:
             return
-        # Проверяем есть ли Oracle у получателя уведомления
-        has_oracle = self.content_service.has_active_content(db, target_id, "oracle")
+        has_oracle = self._has_oracle(db, target_id)
         badge = self.get_user_badge(db, liker_id)
         text = self._format_like_notification(liker, badge, show_rating=has_oracle)
         keyboard = self._like_notification_keyboard(liker_id)
@@ -367,8 +381,8 @@ class SearchService:
         badge_a = self.get_user_badge(db, user_a)
         badge_b = self.get_user_badge(db, user_b)
 
-        has_oracle_a = self.content_service.has_active_content(db, user_a, "oracle")
-        has_oracle_b = self.content_service.has_active_content(db, user_b, "oracle")
+        has_oracle_a = self._has_oracle(db, user_a)
+        has_oracle_b = self._has_oracle(db, user_b)
 
         text_for_a = self._format_match_notification(
             user_b_data, tg_username_b, badge_b, show_rating=has_oracle_a

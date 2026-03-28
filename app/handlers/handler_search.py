@@ -42,7 +42,6 @@ def _format_card(card) -> str:
         tags_display.append(tag_name)
     tags_str = ", ".join(tags_display) if tags_display else "не указаны"
 
-    # Рейтинг показываем только если есть Oracle
     rating_line = ""
     if card.show_rating:
         r = card.rating if card.rating is not None else 0
@@ -145,9 +144,10 @@ async def start_search(message: Message, state: FSMContext):
             )
             return
 
+        is_unlim = search_service.is_unlimited(db, user_id)
         views_left = search_service.get_views_left(db, user_id)
 
-    if views_left <= 0:
+    if not is_unlim and views_left <= 0:
         with SessionLocal() as db:
             seconds = search_service.get_time_until_next(db, user_id)
         await message.answer(
@@ -157,11 +157,15 @@ async def start_search(message: Message, state: FSMContext):
         )
         return
 
-    await message.answer(
-        f"🔍 <b>Поиск тиммейтов</b>\n"
-        f"Доступно просмотров: <b>{views_left}</b>",
-        parse_mode="HTML",
-    )
+    if is_unlim:
+        status_text = "🔍 <b>Поиск тиммейтов</b>\n👑 Безлимитный поиск"
+    else:
+        status_text = (
+            f"🔍 <b>Поиск тиммейтов</b>\n"
+            f"Доступно просмотров: <b>{views_left}</b>"
+        )
+
+    await message.answer(status_text, parse_mode="HTML")
 
     with SessionLocal() as db:
         card = search_service.get_next_card(db, user_id)
@@ -192,9 +196,10 @@ async def on_like(callback: CallbackQuery, state: FSMContext):
     await callback.answer("❤️ Лайк!")
 
     with SessionLocal() as db:
+        is_unlim = search_service.is_unlimited(db, user_id)
         views_left = search_service.get_views_left(db, user_id)
 
-    if views_left <= 0:
+    if not is_unlim and views_left <= 0:
         with SessionLocal() as db:
             seconds = search_service.get_time_until_next(db, user_id)
         try:
@@ -239,9 +244,10 @@ async def on_dislike(callback: CallbackQuery, state: FSMContext):
     await callback.answer("👎")
 
     with SessionLocal() as db:
+        is_unlim = search_service.is_unlimited(db, user_id)
         views_left = search_service.get_views_left(db, user_id)
 
-    if views_left <= 0:
+    if not is_unlim and views_left <= 0:
         with SessionLocal() as db:
             seconds = search_service.get_time_until_next(db, user_id)
         try:
