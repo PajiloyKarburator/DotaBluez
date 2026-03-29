@@ -26,6 +26,7 @@ router = Router()
 template_service = UserTemplateService()
 content_service = ContentService(UserRepo())
 
+
 class TemplateStates(StatesGroup):
     waiting_name = State()
     waiting_age = State()
@@ -44,6 +45,7 @@ def format_games_limit(limit: int | None) -> str:
         return "без ограничений"
     return str(limit)
 
+
 def format_profile_text(user, badge: str) -> str:
     games = ", ".join(user.games or []) if user.games else "не указаны"
     tags = ", ".join(user.tags or []) if user.tags else "не указаны"
@@ -60,11 +62,33 @@ def format_profile_text(user, badge: str) -> str:
         f"Рейтинг: {user.rating if user.rating is not None else 'не указан'}"
     )
 
+
 def collect_allowed_tags(selected_games: list[str]) -> set[str]:
     allowed_tags = set()
     for game in selected_games:
         allowed_tags.update(GAME_TAGS.get(game, {}).keys())
     return allowed_tags
+
+
+def get_games_limit_error_text(status: str, games_limit: int | None) -> str:
+    if games_limit is None:
+        return ""
+
+    if status == "free":
+        return (
+            "У тебя сейчас бесплатный статус, а в анкете выбрано слишком много игр.\n\n"
+            "На бесплатном тарифе доступна только <b>1 игра</b>.\n"
+            "Удали лишние игры или оформи Premium."
+        )
+
+    if status == "prime":
+        return (
+            "У тебя сейчас статус Premium, а в анкете выбрано слишком много игр.\n\n"
+            "На Premium доступно до <b>3 игр</b>.\n"
+            "Удали лишние игры или оформи Gold."
+        )
+
+    return f"Превышен лимит по играм. Сейчас доступно: <b>{games_limit}</b>."
 
 
 async def safe_delete_message(message: Message | None) -> None:
@@ -199,7 +223,6 @@ async def show_profile_or_create(target: Message | CallbackQuery, state: FSMCont
         await target.answer()
 
 
-
 async def ask_name(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     current_name = data.get("username")
@@ -316,6 +339,8 @@ async def ask_games(message: Message, state: FSMContext) -> None:
 
     with SessionLocal() as db:
         games_limit = content_service.get_games_limit(db, user_id)
+        status = content_service.get_subscription_status(db, user_id)
+
     limit_text = (
         "Ты можешь выбрать сколько угодно игр."
         if games_limit is None
@@ -333,6 +358,12 @@ async def ask_games(message: Message, state: FSMContext) -> None:
         current_games = ", ".join(GAMES.get(game, game) for game in selected_games)
         text += f"\n\nСейчас выбрано: <b>{current_games}</b>"
 
+    if games_limit is not None and len(selected_games) > games_limit:
+        text += (
+            "\n\n⚠️ <b>Сейчас у тебя выбрано больше игр, чем разрешает текущая подписка.</b>\n"
+            f"{get_games_limit_error_text(status, games_limit)}"
+        )
+
     await render_form_step(
         message,
         state,
@@ -340,9 +371,7 @@ async def ask_games(message: Message, state: FSMContext) -> None:
         reply_markup=games_keyboard(selected_games),
         form_state=TemplateStates.waiting_games,
     )
-    with SessionLocal() as db:
-        games_limit = content_service.get_games_limit(db, message.from_user.id)
-  
+
 
 async def ask_tags(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
@@ -550,7 +579,6 @@ async def back_to_tags(callback: CallbackQuery, state: FSMContext):
 # NEXT CALLBACKS
 # =========================
 
-
 @router.callback_query(F.data == "template:next:name")
 async def next_from_name(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -598,7 +626,6 @@ async def process_name(message: Message, state: FSMContext):
     name = (message.text or "").strip()
 
     if len(name) < 2:
-
         await safe_delete_user_message(message)
         await render_form_step(
             message,
@@ -732,6 +759,7 @@ async def invalid_photo(message: Message, state: FSMContext):
         form_state=TemplateStates.waiting_photo,
     )
 
+
 # =========================
 # ШАГ 4 — ОПИСАНИЕ
 # =========================
@@ -838,13 +866,35 @@ async def toggle_game(callback: CallbackQuery, state: FSMContext):
 async def games_done(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected_games = data.get("games", [])
+    user_id = data.get("user_id")
 
     if not selected_games:
         await callback.answer("Выбери хотя бы одну игру.", show_alert=True)
         return
 
+    with SessionLocal() as db:
+        games_limit = content_service.get_games_limit(db, user_id)
+        status = content_service.get_subscription_status(db, user_id)
+
+    if games_limit is not None and len(selected_games) > games_limit:
+        await callback.answer("Сначала убери лишние игры.", show_alert=True)
+        await render_form_step(
+            callback.message,
+            state,
+            text=(
+                "🎯 Шаг 5/6\n"
+                "Выбери игры, для которых хочешь найти тиммейтов.\n\n"
+                f"Сейчас у тебя выбрано <b>{len(selected_games)}</b>, а доступно только <b>{games_limit}</b>.\n\n"
+                f"{get_games_limit_error_text(status, games_limit)}"
+            ),
+            reply_markup=games_keyboard(selected_games),
+            form_state=TemplateStates.waiting_games,
+        )
+        return
+
     await callback.answer()
     await ask_tags(callback.message, state)
+
 
 # =========================
 # ШАГ 6 — ТЕГИ
@@ -860,6 +910,7 @@ async def toggle_tag(callback: CallbackQuery, state: FSMContext):
     if tag_value not in allowed_tags:
         await callback.answer("Этот тег недоступен для выбранных игр.", show_alert=True)
         return
+
     selected_tags = list(data.get("tags", []))
     if tag_value in selected_tags:
         selected_tags.remove(tag_value)
@@ -888,15 +939,24 @@ async def tags_done(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await ask_confirm(callback.message, state)
 
+
 # =========================
 # ШАГ 7 — СОХРАНЕНИЕ
 # =========================
 @router.callback_query(TemplateStates.waiting_confirm, F.data == "template:save")
 async def save_template(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    user_id = data.get("user_id")
+    selected_games = data.get("games", [])
 
     with SessionLocal() as db:
-        user_id = data.get("user_id")
+        games_limit = content_service.get_games_limit(db, user_id)
+        status = content_service.get_subscription_status(db, user_id)
+
+        if games_limit is not None and len(selected_games) > games_limit:
+            await callback.answer("Сначала убери лишние игры.", show_alert=True)
+            await ask_games(callback.message, state)
+            return
 
         template_service.create_template(
             db,
@@ -909,6 +969,7 @@ async def save_template(callback: CallbackQuery, state: FSMContext):
             games=data.get("games", []),
             rating=data.get("rating"),
         )
+
     await clear_form_message(state, callback.message.bot, callback.message.chat.id)
     await state.clear()
 

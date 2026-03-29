@@ -12,12 +12,17 @@ from aiogram.types import (
 )
 
 from app.db.session import SessionLocal
-from app.keyboards.keyboard import GAMES, GAME_TAGS, main_menu_keyboard
+from app.keyboards.keyboard import GAMES, GAME_TAGS, main_menu_keyboard, profile_menu_keyboard
+from app.repo.repository import UserRepo
+from app.services.content_service import ContentService
 from app.services.service_search import SearchService
+from app.services.user_template_service import UserTemplateService
 
 router = Router()
 
 search_service = SearchService()
+content_service = ContentService(UserRepo())
+template_service = UserTemplateService()
 
 
 class SearchStates(StatesGroup):
@@ -87,6 +92,81 @@ def _no_views_text(seconds_left: int) -> str:
     )
 
 
+def _games_limit_block_text(status: str, games_count: int, games_limit: int) -> str:
+    if status == "free":
+        return (
+            "⚠️ <b>Поиск временно недоступен</b>\n\n"
+            f"У тебя в анкете выбрано <b>{games_count}</b> игр, "
+            f"но на бесплатном статусе доступна только <b>{games_limit}</b> игра.\n\n"
+            "Зайди в <b>Анкета</b> и убери лишние игры, либо оформи Premium."
+        )
+
+    if status == "prime":
+        return (
+            "⚠️ <b>Поиск временно недоступен</b>\n\n"
+            f"У тебя в анкете выбрано <b>{games_count}</b> игр, "
+            f"но на Premium доступно только <b>{games_limit}</b> игры.\n\n"
+            "Зайди в <b>Анкета</b> и убери лишние игры, либо оформи Gold."
+        )
+
+    return (
+        "⚠️ <b>Поиск временно недоступен</b>\n\n"
+        f"У тебя в анкете выбрано <b>{games_count}</b> игр, "
+        f"но текущий лимит — <b>{games_limit}</b>."
+    )
+
+
+def _has_games_limit_violation(db, user_id: int) -> tuple[bool, str | None]:
+    user_repo = UserRepo()
+    user = user_repo.get_user_by_id(db, user_id)
+    if not user:
+        return False, None
+
+    games = user.games or []
+    games_limit = content_service.get_games_limit(db, user_id)
+
+    if games_limit is None:
+        return False, None
+
+    if len(games) <= games_limit:
+        return False, None
+
+    status = content_service.get_subscription_status(db, user_id)
+    return True, _games_limit_block_text(status, len(games), games_limit)
+
+
+async def require_profile_for_search(target: Message | CallbackQuery) -> bool:
+    if isinstance(target, Message):
+        user_id = target.from_user.id
+        sender = target
+    else:
+        user_id = target.from_user.id
+        sender = target.message
+
+    with SessionLocal() as db:
+        has_profile = template_service.profile_is_complete(db, user_id)
+
+    if has_profile:
+        return True
+
+    text = (
+        "⚠️ <b>Сначала создай анкету</b>\n\n"
+        "Поиск тиммейтов доступен только после заполнения анкеты.\n"
+        "Сначала заполни профиль в разделе <b>Анкета</b>, а потом возвращайся в поиск."
+    )
+
+    await sender.answer(
+        text,
+        reply_markup=profile_menu_keyboard(has_profile=False),
+        parse_mode="HTML",
+    )
+
+    if isinstance(target, CallbackQuery):
+        await target.answer("Сначала создай анкету.", show_alert=True)
+
+    return False
+
+
 async def _send_card(
     target: Message | CallbackQuery, card, *, edit: bool = False
 ) -> None:
@@ -133,14 +213,16 @@ async def _send_card(
 async def start_search(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
+    if not await require_profile_for_search(message):
+        return
+
     with SessionLocal() as db:
-        from app.services.user_template_service import UserTemplateService
-        template_svc = UserTemplateService()
-        if not template_svc.profile_is_complete(db, user_id):
+        has_violation, violation_text = _has_games_limit_violation(db, user_id)
+        if has_violation:
             await message.answer(
-                "⚠️ Сначала создай анкету в разделе <b>Анкета</b>.",
+                violation_text,
                 parse_mode="HTML",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=profile_menu_keyboard(has_profile=True),
             )
             return
 
@@ -190,12 +272,51 @@ async def start_search(message: Message, state: FSMContext):
 async def on_like(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
+    if not await require_profile_for_search(callback):
+        await state.clear()
+        return
+
     with SessionLocal() as db:
+        has_violation, violation_text = _has_games_limit_violation(db, user_id)
+        if has_violation:
+            await callback.answer("Поиск остановлен.", show_alert=True)
+            try:
+                await callback.message.edit_text(
+                    violation_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_menu_keyboard(has_profile=True),
+                )
+            except Exception:
+                await callback.message.answer(
+                    violation_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_menu_keyboard(has_profile=True),
+                )
+            await state.clear()
+            return
+
         await search_service.on_like(db, user_id)
 
     await callback.answer("❤️ Лайк!")
 
     with SessionLocal() as db:
+        has_violation, violation_text = _has_games_limit_violation(db, user_id)
+        if has_violation:
+            try:
+                await callback.message.edit_text(
+                    violation_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_menu_keyboard(has_profile=True),
+                )
+            except Exception:
+                await callback.message.answer(
+                    violation_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_menu_keyboard(has_profile=True),
+                )
+            await state.clear()
+            return
+
         is_unlim = search_service.is_unlimited(db, user_id)
         views_left = search_service.get_views_left(db, user_id)
 
@@ -240,10 +361,32 @@ async def on_like(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(SearchStates.browsing, F.data == "search:dislike")
 async def on_dislike(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
+
+    if not await require_profile_for_search(callback):
+        await state.clear()
+        return
+
     search_service.on_dislike(user_id)
     await callback.answer("👎")
 
     with SessionLocal() as db:
+        has_violation, violation_text = _has_games_limit_violation(db, user_id)
+        if has_violation:
+            try:
+                await callback.message.edit_text(
+                    violation_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_menu_keyboard(has_profile=True),
+                )
+            except Exception:
+                await callback.message.answer(
+                    violation_text,
+                    parse_mode="HTML",
+                    reply_markup=profile_menu_keyboard(has_profile=True),
+                )
+            await state.clear()
+            return
+
         is_unlim = search_service.is_unlimited(db, user_id)
         views_left = search_service.get_views_left(db, user_id)
 

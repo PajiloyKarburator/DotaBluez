@@ -9,15 +9,18 @@ from app.keyboards.keyboard import (
     content_menu_keyboard,
     content_tariffs_keyboard,
     my_content_keyboard,
+    profile_menu_keyboard,
 )
 from app.services.content_catalog import STARS_TARIFF_PRICES as STARS_PRICES
 from app.repo.repository import UserRepo
 from app.services.content_service import ContentService
+from app.services.user_template_service import UserTemplateService
 
 router = Router()
 
 user_repo = UserRepo()
 content_service = ContentService(user_repo)
+template_service = UserTemplateService()
 
 CONTENT_DESCRIPTION_TEXTS = {
     "prime": (
@@ -90,6 +93,38 @@ def parse_payment_payload(payload: str) -> tuple[int, str] | None:
     return user_id, tariff_code
 
 
+async def require_profile_for_content(target: Message | CallbackQuery) -> bool:
+    if isinstance(target, Message):
+        user_id = target.from_user.id
+        sender = target
+    else:
+        user_id = target.from_user.id
+        sender = target.message
+
+    with SessionLocal() as db:
+        has_profile = template_service.profile_is_complete(db, user_id)
+
+    if has_profile:
+        return True
+
+    text = (
+        "⚠️ <b>Сначала создай анкету</b>\n\n"
+        "Покупка услуг доступна только после заполнения анкеты.\n"
+        "Сначала заполни профиль в разделе <b>Анкета</b>, а потом возвращайся в магазин."
+    )
+
+    await sender.answer(
+        text,
+        reply_markup=profile_menu_keyboard(has_profile=False),
+        parse_mode="HTML",
+    )
+
+    if isinstance(target, CallbackQuery):
+        await target.answer("Сначала создай анкету.", show_alert=True)
+
+    return False
+
+
 async def show_content_menu(target: Message | CallbackQuery) -> None:
     text = (
         "🎁 <b>Доп Контент</b>\n\n"
@@ -118,18 +153,28 @@ async def show_content_menu(target: Message | CallbackQuery) -> None:
 @router.message(F.text == "Доп Контент")
 async def content_menu_message(message: Message, state: FSMContext) -> None:
     await state.clear()
+
+    if not await require_profile_for_content(message):
+        return
+
     await show_content_menu(message)
 
 
 @router.callback_query(F.data == "content:menu")
 async def content_menu_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     await show_content_menu(callback)
 
 
 @router.callback_query(F.data == "content:buy")
 async def content_buy_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     await callback.message.edit_text(
-        "🛒 <b>Магазин Dota Blues</b>\n\n"
+        "🛒 <b>Магазин Дайтимчик</b>\n\n"
         "Здесь собраны улучшения, которые помогают искать быстрее, видеть больше "
         "и получать более сильный опыт от бота.\n\n"
         "Ты можешь выбрать:\n"
@@ -144,6 +189,9 @@ async def content_buy_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("content:item:"))
 async def content_item_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     content_code = callback.data.split(":")[-1]
     content = content_service.get_content_info(content_code)
 
@@ -166,6 +214,9 @@ async def content_item_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("content:tariff:"))
 async def content_tariff_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     tariff_code = callback.data.split(":")[-1]
 
     found = content_service.get_tariff_info(tariff_code)
@@ -212,6 +263,16 @@ async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery) -> None:
         await pre_checkout_query.answer(
             ok=False,
             error_message="Этот счёт принадлежит другому пользователю.",
+        )
+        return
+
+    with SessionLocal() as db:
+        has_profile = template_service.profile_is_complete(db, pre_checkout_query.from_user.id)
+
+    if not has_profile:
+        await pre_checkout_query.answer(
+            ok=False,
+            error_message="Сначала создай анкету, затем покупай услуги.",
         )
         return
 
@@ -268,6 +329,20 @@ async def successful_payment_handler(message: Message) -> None:
         return
 
     with SessionLocal() as db:
+        has_profile = template_service.profile_is_complete(db, message.from_user.id)
+        if not has_profile:
+            await message.answer(
+                "Оплата получена, но анкета не найдена. Напиши в поддержку."
+            )
+            return
+
+        user_repo.ensure_user_exists(
+            db,
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+            tg_user_id=str(message.from_user.id),
+        )
+
         item = content_service.grant_tariff(
             db=db,
             user_id=message.from_user.id,
@@ -308,6 +383,9 @@ async def successful_payment_handler(message: Message) -> None:
 
 @router.callback_query(F.data == "content:my")
 async def my_content_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     with SessionLocal() as db:
         active_items = content_service.get_active_content(db, callback.from_user.id)
 
@@ -320,6 +398,9 @@ async def my_content_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("content:my:item:"))
 async def my_content_item_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     content_code = callback.data.split(":")[-1]
 
     with SessionLocal() as db:
@@ -359,6 +440,9 @@ async def my_content_item_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("content:use:"))
 async def content_use_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+
     content_code = callback.data.split(":")[-1]
 
     if content_code == "oracle":

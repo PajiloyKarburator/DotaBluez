@@ -41,17 +41,20 @@ class UserRepo:
         tags: list[str] | None = None,
         games: list[str] | None = None,
         rating: int | None = None,
+        tg_user_id: str | None = None,
+        exclusive: dict | None = None,
     ) -> User:
         user = User(
             id=id,
             username=username.strip() if username else None,
+            tg_user_id=tg_user_id,
             age=age,
             img=img,
             description=description,
             tags=self._normalize_list(tags),
             games=self._normalize_list(games),
             rating=rating,
-            exclusive={},
+            exclusive=exclusive if isinstance(exclusive, dict) else {},
         )
         db.add(user)
         db.commit()
@@ -61,6 +64,61 @@ class UserRepo:
     def get_user_by_id(self, db: Session, user_id: int) -> User | None:
         stmt = select(User).where(User.id == user_id)
         return db.scalar(stmt)
+
+    def ensure_user_exists(
+        self,
+        db: Session,
+        *,
+        user_id: int,
+        username: str | None = None,
+        tg_user_id: str | None = None,
+    ) -> User:
+        user = self.get_user_by_id(db, user_id)
+        if user:
+            changed = False
+
+            clean_username = username.strip() if isinstance(username, str) and username.strip() else None
+            clean_tg_user_id = tg_user_id.strip() if isinstance(tg_user_id, str) and tg_user_id.strip() else None
+
+            if clean_username and user.username != clean_username:
+                user.username = clean_username
+                changed = True
+
+            if clean_tg_user_id and user.tg_user_id != clean_tg_user_id:
+                user.tg_user_id = clean_tg_user_id
+                changed = True
+
+            if user.exclusive is None:
+                user.exclusive = {}
+                changed = True
+
+            if user.tags is None:
+                user.tags = []
+                changed = True
+
+            if user.games is None:
+                user.games = []
+                changed = True
+
+            if changed:
+                db.commit()
+                db.refresh(user)
+
+            return user
+
+        return self.create_user(
+            db,
+            id=user_id,
+            username=username,
+            tg_user_id=tg_user_id,
+            age=18,
+            img=None,
+            description=None,
+            tags=[],
+            games=[],
+            rating=0,
+            exclusive={},
+        )
 
     def get_all_users(
         self,
@@ -121,6 +179,7 @@ class UserRepo:
 
         allowed_fields = {
             "username",
+            "tg_user_id",
             "age",
             "img",
             "description",
@@ -140,7 +199,7 @@ class UserRepo:
             if field_name == "games":
                 value = self._normalize_list(value)
 
-            if field_name == "username" and isinstance(value, str):
+            if field_name in {"username", "tg_user_id"} and isinstance(value, str):
                 value = value.strip()
 
             setattr(user, field_name, value)
