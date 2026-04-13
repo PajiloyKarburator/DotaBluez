@@ -29,6 +29,16 @@ class UserRepo:
 
         return list(dict.fromkeys(result))
 
+    @staticmethod
+    def _normalize_int_list(values: list[int] | None) -> list[int]:
+        if not values:
+            return []
+        result: list[int] = []
+        for value in values:
+            if isinstance(value, int):
+                result.append(value)
+        return list(dict.fromkeys(result))
+
     def create_user(
         self,
         db: Session,
@@ -43,6 +53,8 @@ class UserRepo:
         rating: int | None = None,
         tg_user_id: str | None = None,
         exclusive: dict | None = None,
+        teammates: list[int] | None = None,
+        is_reported: bool = False,
     ) -> User:
         user = User(
             id=id,
@@ -55,6 +67,8 @@ class UserRepo:
             games=self._normalize_list(games),
             rating=rating,
             exclusive=exclusive if isinstance(exclusive, dict) else {},
+            teammates=self._normalize_int_list(teammates),
+            is_reported=is_reported,
         )
         db.add(user)
         db.commit()
@@ -92,6 +106,10 @@ class UserRepo:
                 user.exclusive = {}
                 changed = True
 
+            if user.teammates is None:
+                user.teammates = []
+                changed = True
+
             if user.tags is None:
                 user.tags = []
                 changed = True
@@ -118,6 +136,8 @@ class UserRepo:
             games=[],
             rating=0,
             exclusive={},
+            teammates=[],
+            is_reported=False,
         )
 
     def get_all_users(
@@ -187,6 +207,8 @@ class UserRepo:
             "games",
             "rating",
             "exclusive",
+            "teammates",
+            "is_reported",
         }
 
         for field_name, value in fields.items():
@@ -201,6 +223,9 @@ class UserRepo:
 
             if field_name in {"username", "tg_user_id"} and isinstance(value, str):
                 value = value.strip()
+
+            if field_name == "teammates":
+                value = self._normalize_int_list(value)
 
             setattr(user, field_name, value)
 
@@ -241,6 +266,8 @@ class UserRepo:
         user.tags = []
         user.games = []
         user.rating = None
+        user.teammates = []
+        user.is_reported = False
 
         db.commit()
         db.refresh(user)
@@ -254,3 +281,53 @@ class UserRepo:
         db.delete(user)
         db.commit()
         return True
+
+    def add_teammate(self, db: Session, user_id: int, teammate_id: int) -> User | None:
+        if user_id == teammate_id:
+            return None
+        user = self.get_user_by_id(db, user_id)
+        if not user:
+            return None
+
+        teammates = self._normalize_int_list(user.teammates or [])
+        if teammate_id not in teammates:
+            teammates.append(teammate_id)
+            user.teammates = teammates
+            db.commit()
+            db.refresh(user)
+        return user
+
+    def remove_teammate(self, db: Session, user_id: int, teammate_id: int) -> User | None:
+        user = self.get_user_by_id(db, user_id)
+        if not user:
+            return None
+
+        teammates = self._normalize_int_list(user.teammates or [])
+        if teammate_id in teammates:
+            teammates.remove(teammate_id)
+            user.teammates = teammates
+            db.commit()
+            db.refresh(user)
+        return user
+
+    def get_teammates(self, db: Session, user_id: int) -> list[User]:
+        user = self.get_user_by_id(db, user_id)
+        if not user:
+            return []
+        teammate_ids = self._normalize_int_list(user.teammates or [])
+        if not teammate_ids:
+            return []
+        stmt = select(User).where(User.id.in_(teammate_ids))
+        users = list(db.scalars(stmt).all())
+        users.sort(key=lambda item: teammate_ids.index(item.id))
+        return users
+
+    def mark_user_reported(self, db: Session, user_id: int) -> User | None:
+        user = self.get_user_by_id(db, user_id)
+        if not user:
+            return None
+        if not user.is_reported:
+            user.is_reported = True
+            db.commit()
+            db.refresh(user)
+        return user

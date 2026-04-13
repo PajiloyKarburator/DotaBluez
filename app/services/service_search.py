@@ -86,7 +86,7 @@ class SearchService:
 
     RATING_MIN: int = -100
     RATING_MAX: int = 100
-    REVIEW_DELAY: int = 3600
+    REVIEW_DELAY: int = 86400
 
     PLANS = {
         "free":  {"max_views": 10,  "refill_interval": 3600, "unlimited": False},
@@ -191,6 +191,8 @@ class SearchService:
         is_mutual = self._is_mutual_like(user_id, target_id)
 
         if is_mutual:
+            self.repo.add_teammate(db, user_id, target_id)
+            self.repo.add_teammate(db, target_id, user_id)
             await self._send_match_notification(db, user_id, target_id)
             self._schedule_review(user_id, target_id)
         else:
@@ -210,6 +212,8 @@ class SearchService:
 
         is_mutual = self._is_mutual_like(liker_id, target_id)
         if is_mutual:
+            self.repo.add_teammate(db, liker_id, target_id)
+            self.repo.add_teammate(db, target_id, liker_id)
             await self._send_match_notification(db, liker_id, target_id)
             self._schedule_review(liker_id, target_id)
 
@@ -225,6 +229,9 @@ class SearchService:
         new_rating = current_rating + score
         new_rating = max(self.RATING_MIN, min(self.RATING_MAX, new_rating))
         self.repo.update_user(db, target_id, rating=new_rating)
+
+    def report_user(self, db: Session, target_id: int) -> bool:
+        return self.repo.mark_user_reported(db, target_id) is not None
 
     def use_refresh(self, db: Session, user_id: int) -> bool:
         item = self.content_service.consume_usage(db, user_id, "refresh")
@@ -303,7 +310,7 @@ class SearchService:
             return
         target_name = target.username or "Игрок"
         text = (
-            f"⏰ <b>Прошёл час с момента вашего мэтча!</b>\n\n"
+            f"⏰ <b>Прошёл день с момента вашего мэтча!</b>\n\n"
             f"Оцените вашего напарника <b>{target_name}</b> "
             f"по шкале от <b>-5</b> до <b>5</b>:\n\n"
             f"🔴 -5 — ужасный опыт\n"

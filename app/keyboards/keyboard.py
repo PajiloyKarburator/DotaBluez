@@ -13,7 +13,8 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Анкета"), KeyboardButton(text="Поиск")],
-            [KeyboardButton(text="Доп Контент"), KeyboardButton(text="Помощь")],
+            [KeyboardButton(text="Мои тимейты"), KeyboardButton(text="Доп Контент")],
+            [KeyboardButton(text="Помощь")],
         ],
         resize_keyboard=True,
     )
@@ -162,7 +163,13 @@ def content_menu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🛒 Приобрести услуги",
+                    text="✨ Подписки и ценность",
+                    callback_data="content:value",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🛒 Купить услугу",
                     callback_data="content:buy",
                 )
             ],
@@ -195,6 +202,41 @@ def content_catalog_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="Назад", callback_data="content:menu")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def teammates_carousel_keyboard(
+    *,
+    index: int,
+    total: int,
+    teammate_id: int,
+) -> InlineKeyboardMarkup:
+    prev_index = (index - 1) % total
+    next_index = (index + 1) % total
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⬅️",
+                    callback_data=f"teammates:show:{prev_index}",
+                ),
+                InlineKeyboardButton(
+                    text=f"{index + 1}/{total}",
+                    callback_data="teammates:noop",
+                ),
+                InlineKeyboardButton(
+                    text="➡️",
+                    callback_data=f"teammates:show:{next_index}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить",
+                    callback_data=f"teammates:remove:{teammate_id}",
+                ),
+            ],
+            [InlineKeyboardButton(text="В меню", callback_data="menu:main")],
+        ]
+    )
 
 
 def content_tariffs_keyboard(content_code: str) -> InlineKeyboardMarkup:

@@ -69,6 +69,9 @@ def _card_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="❤️", callback_data="search:like"),
             ],
             [
+                InlineKeyboardButton(text="🚩 Репорт", callback_data="search:report"),
+            ],
+            [
                 InlineKeyboardButton(
                     text="🔙 Вернуться к профилю",
                     callback_data="search:back_to_profile",
@@ -403,6 +406,39 @@ async def on_dislike(callback: CallbackQuery, state: FSMContext):
             )
         await state.clear()
         return
+
+    with SessionLocal() as db:
+        card = search_service.get_next_card(db, user_id)
+
+    if not card:
+        try:
+            await callback.message.edit_text(
+                "📭 Подходящих анкет больше нет. Заходи позже!",
+                parse_mode="HTML",
+            )
+        except Exception:
+            await callback.message.answer(
+                "📭 Подходящих анкет больше нет. Заходи позже!",
+                parse_mode="HTML",
+            )
+        await state.clear()
+        return
+
+    await _send_card(callback, card, edit=True)
+
+
+@router.callback_query(SearchStates.browsing, F.data == "search:report")
+async def on_report(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    current_card = search_service.get_current_card(user_id)
+    if not current_card:
+        await callback.answer("Карточка не найдена.", show_alert=True)
+        return
+
+    with SessionLocal() as db:
+        search_service.report_user(db, current_card.id)
+    await callback.answer("Пользователь отправлен в репорт.")
+    search_service.on_dislike(user_id)
 
     with SessionLocal() as db:
         card = search_service.get_next_card(db, user_id)

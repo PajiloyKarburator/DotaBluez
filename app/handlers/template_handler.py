@@ -47,8 +47,21 @@ def format_games_limit(limit: int | None) -> str:
 
 
 def format_profile_text(user, badge: str) -> str:
-    games = ", ".join(user.games or []) if user.games else "не указаны"
-    tags = ", ".join(user.tags or []) if user.tags else "не указаны"
+    games = (
+        ", ".join(GAMES.get(game_key, game_key) for game_key in (user.games or []))
+        if user.games
+        else "не указаны"
+    )
+
+    tag_titles: list[str] = []
+    for tag_key in (user.tags or []):
+        tag_title = tag_key
+        for tags_map in GAME_TAGS.values():
+            if tag_key in tags_map:
+                tag_title = tags_map[tag_key]
+                break
+        tag_titles.append(tag_title)
+    tags = ", ".join(tag_titles) if tag_titles else "не указаны"
 
     return (
         "🎮 <b>Твоя анкета</b>\n\n"

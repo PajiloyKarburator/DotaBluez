@@ -143,18 +143,23 @@ STARS_TARIFF_PRICES = {
 
 # Машинные значения для БД / JSON
 GAMES = {
-    "dota2": "Dota 2", 
+    "dota2": "Dota 2",
     "lol": "League of Legends",
     "csgo": "CS:GO",
     "valorant": "Valorant",
     "apex": "Apex Legends",
-    "hd2": "Helldivers 2", 
-    "eft":"Escape from Tarkov",
+    "hd2": "Helldivers 2",
+    "eft": "Escape from Tarkov",
     "dbd": "Dead by Daylight",
     "wot": "World of Tanks",
-    "wt": "War Tunder",
+    "wt": "War Thunder",
     "drg": "Deep Rock Galactic",
     "brawlstars": "Brawl Stars",
+    "mobile_legends": "Mobile Legends",
+    "pubg": "PUBG",
+    "fortnite": "Fortnite",
+    "repo": "R.E.P.O.",
+    "warframe": "Warframe",
 }
 
 GAME_TAGS = {
@@ -190,36 +195,36 @@ GAME_TAGS = {
         "apex_igl": "Штурм",
         "apex_sniper": "Снайпер",
     },
-    "hd2":{
-        "hd2_heavy":"Штурмовик",
-        "hd2_control":"Контроль",
-        "hd2_sniper":"Снайпер",
-        "hd2_support":"Инженер",
+    "hd2": {
+        "hd2_heavy": "Штурмовик",
+        "hd2_control": "Контроль",
+        "hd2_sniper": "Снайпер",
+        "hd2_support": "Инженер",
     },
-    "eft":{
-        "eft_sniper":"Снайпер",
-        "eft_mule":"Мул",
-        "eft_scout":"Разведчик",
-        "eft_hiiler":"Санитар",
+    "eft": {
+        "eft_sniper": "Снайпер",
+        "eft_mule": "Мул",
+        "eft_scout": "Разведчик",
+        "eft_hiiler": "Санитар",
     },
-    "wot":{
-        "wot_tt":"Тяжелый танк",
-        "wot_st":"Средний танк",
-        "wot_lt":"Легкий танк",
-        "wot_pt":"ПТ-САУ",
-        "wot_art":"САУ",
+    "wot": {
+        "wot_tt": "Тяжелый танк",
+        "wot_st": "Средний танк",
+        "wot_lt": "Легкий танк",
+        "wot_pt": "ПТ-САУ",
+        "wot_art": "САУ",
     },
-    "wt":{
-        "wt_tt":"Тяжелый танк",
-        "wt_st":"Средний танк",
-        "wt_lt":"Легкий танк",
-        "wt_pt":"ПТ-САУ",
+    "wt": {
+        "wt_tt": "Тяжелый танк",
+        "wt_st": "Средний танк",
+        "wt_lt": "Легкий танк",
+        "wt_pt": "ПТ-САУ",
     },
-    "drg":{
-        "drg_scout":"Скаут",
-        "drg_engineer":"Инженер",
-        "drg_driller":"Бурильщик",
-        "drg_gunner":"Стрелок",
+    "drg": {
+        "drg_scout": "Скаут",
+        "drg_engineer": "Инженер",
+        "drg_driller": "Бурильщик",
+        "drg_gunner": "Стрелок",
     },
     "brawlstars": {
         "brawlstars_assasin": "Ассасин",
@@ -232,6 +237,38 @@ GAME_TAGS = {
     "dbd": {
         "dbd_survivor": "Выживший",
         "dbd_killer": "Маньяк",
+    },
+    "mobile_legends": {
+        "ml_gold_lane": "Gold Lane",
+        "ml_mid_lane": "Mid Lane",
+        "ml_exp_lane": "EXP Lane",
+        "ml_roam": "Roam",
+        "ml_jungle": "Jungle",
+    },
+    "pubg": {
+        "pubg_entry_fragger": "Entry fragger",
+        "pubg_scout": "Scout",
+        "pubg_sniper": "Sniper",
+        "pubg_support": "Support",
+        "pubg_igl": "IGL",
+    },
+    "fortnite": {
+        "fortnite_builder": "Builder",
+        "fortnite_aimer": "Fragger",
+        "fortnite_igl": "IGL",
+        "fortnite_support": "Support",
+    },
+    "repo": {
+        "repo_scavenger": "Scavenger",
+        "repo_looter": "Looter",
+        "repo_tactician": "Tactician",
+        "repo_support": "Support",
+    },
+    "warframe": {
+        "warframe_dps": "DPS",
+        "warframe_support": "Support",
+        "warframe_farm": "Farm",
+        "warframe_speedrun": "Speedrun",
     },
 
 }

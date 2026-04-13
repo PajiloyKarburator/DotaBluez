@@ -150,6 +150,41 @@ async def show_content_menu(target: Message | CallbackQuery) -> None:
         await target.answer()
 
 
+async def show_content_value(target: Message | CallbackQuery) -> None:
+    text = (
+        "✨ <b>Что даст каждая подписка</b>\n\n"
+        "💎 <b>Prime</b>\n"
+        "— больше просмотров и быстрее обновление поиска\n"
+        "— до 3 игр в анкете\n"
+        "— приоритет в подборе\n\n"
+        "👑 <b>Gold</b>\n"
+        "— безлимитный поиск\n"
+        "— неограниченное число игр\n"
+        "— максимальный приоритет\n\n"
+        "🔮 <b>Oracle</b>\n"
+        "— просмотр рейтинга других игроков\n\n"
+        "⚡ <b>Refresh</b>\n"
+        "— мгновенно восстанавливает просмотры\n\n"
+        "♻️ <b>Second Chance</b>\n"
+        "— сбрасывает рейтинг, если нужен новый старт\n\n"
+        "Ниже можно сразу перейти к покупке нужной услуги."
+    )
+
+    if isinstance(target, Message):
+        await target.answer(
+            text,
+            reply_markup=content_menu_keyboard(),
+            parse_mode="HTML",
+        )
+    else:
+        await target.message.edit_text(
+            text,
+            reply_markup=content_menu_keyboard(),
+            parse_mode="HTML",
+        )
+        await target.answer()
+
+
 @router.message(F.text == "Доп Контент")
 async def content_menu_message(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -157,7 +192,7 @@ async def content_menu_message(message: Message, state: FSMContext) -> None:
     if not await require_profile_for_content(message):
         return
 
-    await show_content_menu(message)
+    await show_content_value(message)
 
 
 @router.callback_query(F.data == "content:menu")
@@ -168,6 +203,13 @@ async def content_menu_callback(callback: CallbackQuery) -> None:
     await show_content_menu(callback)
 
 
+@router.callback_query(F.data == "content:value")
+async def content_value_callback(callback: CallbackQuery) -> None:
+    if not await require_profile_for_content(callback):
+        return
+    await show_content_value(callback)
+
+
 @router.callback_query(F.data == "content:buy")
 async def content_buy_callback(callback: CallbackQuery) -> None:
     if not await require_profile_for_content(callback):
@@ -175,12 +217,13 @@ async def content_buy_callback(callback: CallbackQuery) -> None:
 
     await callback.message.edit_text(
         "🛒 <b>Магазин Дайтимчик</b>\n\n"
-        "Здесь собраны улучшения, которые помогают искать быстрее, видеть больше "
-        "и получать более сильный опыт от бота.\n\n"
-        "Ты можешь выбрать:\n"
-        "— подписку для постоянного буста\n"
-        "— или отдельную услугу под конкретную задачу\n\n"
-        "👇 Нажми на интересующий вариант и посмотри, что он даёт",
+        "Выбирай конкретную услугу сразу:\n\n"
+        "💎 Prime — больше просмотров и до 3 игр\n"
+        "👑 Gold — полный безлимит и максимальный приоритет\n"
+        "🔮 Oracle — видно рейтинг игроков\n"
+        "⚡ Refresh — моментальное обновление поиска\n"
+        "♻️ Second Chance — сброс рейтинга\n\n"
+        "👇 Нажми на нужный вариант и выбери тариф",
         reply_markup=content_catalog_keyboard(),
         parse_mode="HTML",
     )

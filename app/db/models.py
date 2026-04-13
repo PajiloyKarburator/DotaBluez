@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import DeclarativeBase
@@ -21,3 +21,5 @@ class User(Base):
     games: Mapped[list | None] = mapped_column(JSON, nullable=True)
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exclusive: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    teammates: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    is_reported: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
