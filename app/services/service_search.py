@@ -469,6 +469,8 @@ class SearchService:
         tg_username: str | None,
         badge: str,
         show_rating: bool = False,
+        *,
+        show_match_header: bool = True,
     ) -> str:
         from app.keyboards.keyboard import GAMES, GAME_TAGS
 
@@ -496,10 +498,14 @@ class SearchService:
         rating_line = ""
         if show_rating:
             r = user.rating if user.rating is not None else 0
-            rating_line = f"\n⭐ Рейтинг: <b>{r}</b>\n"
+            rating_line = f"\n⭐️ Рейтинг: <b>{r}</b>\n"
+
+        header = (
+            "🎉 <b>У вас взаимная симпатия!</b>\n\n" if show_match_header else ""
+        )
 
         return (
-            "🎉 <b>У вас взаимная симпатия!</b>\n\n"
+            f"{header}"
             f"{badge}\n"
             f"<b>👤 {user.username or 'Игрок'}, {user.age} лет</b>\n\n"
             f"🎮 <b>Игры:</b> {games_str}\n"

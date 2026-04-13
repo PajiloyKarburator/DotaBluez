@@ -204,24 +204,30 @@ def teammates_carousel_keyboard(
     total: int,
     teammate_id: int,
 ) -> InlineKeyboardMarkup:
-    prev_index = (index - 1) % total
-    next_index = (index + 1) % total
+    nav_row: list[InlineKeyboardButton] = []
+    if index > 0:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=f"teammates:nav:{index}:{index - 1}",
+            )
+        )
+    nav_row.append(
+        InlineKeyboardButton(
+            text=f"{index + 1}/{total}",
+            callback_data="teammates:noop",
+        )
+    )
+    if index < total - 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=f"teammates:nav:{index}:{index + 1}",
+            )
+        )
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="⬅️",
-                    callback_data=f"teammates:show:{prev_index}",
-                ),
-                InlineKeyboardButton(
-                    text=f"{index + 1}/{total}",
-                    callback_data="teammates:noop",
-                ),
-                InlineKeyboardButton(
-                    text="➡️",
-                    callback_data=f"teammates:show:{next_index}",
-                ),
-            ],
+            nav_row,
             [
                 InlineKeyboardButton(
                     text="🗑 Удалить",
