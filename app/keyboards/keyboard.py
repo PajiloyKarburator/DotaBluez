@@ -163,13 +163,7 @@ def content_menu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✨ Подписки и ценность",
-                    callback_data="content:value",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🛒 Купить услугу",
+                    text="🛒 Приобрести услуги",
                     callback_data="content:buy",
                 )
             ],
